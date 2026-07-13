@@ -5,6 +5,8 @@ Fetch and dump -- no analysis lives here. Cloud-first: POST
 from __future__ import annotations
 
 import base64
+import json
+from pathlib import Path
 
 from tentpole.adapters.config import JiraConfig
 from tentpole.adapters.http import HttpError, request
@@ -167,3 +169,64 @@ def fetch_issues(cfg, categories, programs, http=request) -> list[dict]:
         # (spec section 2: cross-team read access is an open question).
         external = [_stub_external(k) for k in linked]
     return issues + external
+
+
+def fetch_sprints(cfg, http=request) -> list[dict]:
+    if cfg.board_id is None:
+        return []
+    out, start = [], 0
+    while True:
+        page = _call(cfg, "GET",
+                     f"/rest/agile/1.0/board/{cfg.board_id}/sprint",
+                     params={"startAt": start,
+                             "state": "active,future"},
+                     http=http)
+        values = page.get("values", [])
+        for s in values:
+            if s.get("startDate") and s.get("endDate"):
+                out.append({"id": s["id"], "name": s["name"],
+                            "start": s["startDate"][:10],
+                            "end": s["endDate"][:10]})
+        if page.get("isLast", True):
+            return out
+        start += len(values)
+
+
+def fetch_versions(cfg, http=request) -> list[dict]:
+    out = []
+    for project in cfg.projects:
+        for v in _call(cfg, "GET",
+                       f"/rest/api/3/project/{project}/versions",
+                       http=http):
+            out.append({"name": v["name"],
+                        "release_date": v.get("releaseDate"),
+                        "released": v.get("released", False)})
+    return out
+
+
+def fetch_hygiene(cfg, rules, http=request) -> dict[str, list[str]]:
+    # Spec section 5: Jira itself evaluates each rule's JQL at extract
+    # time, scoped to the in-scope set; the core only joins membership.
+    out = {}
+    for rule in rules:
+        if rule.jql is None:
+            continue
+        jql = f"({cfg.scope_jql}) AND ({rule.jql})"
+        out[rule.name] = [r["key"]
+                          for r in _search_pages(cfg, jql, ["id"],
+                                                 http=http)]
+    return out
+
+
+def write_bundle(out_dir: Path, *, as_of: str, issues, sprints,
+                 versions, hygiene, config=None) -> None:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "meta.json").write_text(json.dumps({"as_of": as_of}))
+    (out_dir / "issues.json").write_text(json.dumps(issues, indent=2))
+    (out_dir / "sprints.json").write_text(json.dumps(sprints, indent=2))
+    (out_dir / "fix_versions.json").write_text(
+        json.dumps(versions, indent=2))
+    (out_dir / "hygiene.json").write_text(json.dumps(hygiene, indent=2))
+    if config is not None:
+        (out_dir / "config.json").write_text(json.dumps(config, indent=2))

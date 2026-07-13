@@ -8,6 +8,7 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
+from tentpole.adapters import cli as edge_cli
 from tentpole.diagnostics import assemble, personal, to_json
 from tentpole.humansheets import exceptions_from_sheet, ghosts_from_sheet
 from tentpole.hygiene import load_rules
@@ -73,7 +74,13 @@ def main(argv: list[str] | None = None) -> int:
     sync_cmd.add_argument("--out", required=True, type=Path)
     sync_cmd.add_argument("--rules", type=Path, default=None)
 
+    edge_cli.add_parsers(sub)
+
     args = parser.parse_args(argv)
+
+    edge_code = edge_cli.dispatch(args)
+    if edge_code is not None:
+        return edge_code
 
     if args.command == "schema":
         print(render_schemas())
