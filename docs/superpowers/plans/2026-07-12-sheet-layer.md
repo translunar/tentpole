@@ -544,7 +544,7 @@ git commit -m "feat: epics and fixversions rollup sheet builders"
 
 **Interfaces:**
 - Consumes: Tasks 2-3 internals; `diag["capacity"]` rows (`{"person","bucket_id","load","capacity"}`).
-- Produces: `dependencies_sheet(bundle) -> SheetSpec` (edge key `"<our>-><their>"` for outward, `"<our>-<-<their>"` for inward; one row per Blocks link on our non-external issues whose other side is external or absent); `capacity_sheet(diag) -> SheetSpec` (key `"<person>|<bucket_id>"`); `accuracy_sheet(bundle) -> SheetSpec` (one row per done, non-external, non-Epic, non-overhead issue having original estimate > 0, first_in_progress, and done_at; Cycle Days = (done − first_in_progress).days + 1; Ratio = round(cycle/original, 2)); `build_sheetspecs(bundle, diag) -> dict[str, SheetSpec]` with exactly the six machine sheet keys.
+- Produces: `dependencies_sheet(bundle) -> SheetSpec` (edge key `"<our>-><their>"` for outward, `"<our><-<their>"` for inward; one row per Blocks link on our non-external issues whose other side is external or absent); `capacity_sheet(diag) -> SheetSpec` (key `"<person>|<bucket_id>"`); `accuracy_sheet(bundle) -> SheetSpec` (one row per done, non-external, non-Epic, non-overhead issue having original estimate > 0, first_in_progress, and done_at; Cycle Days = (done − first_in_progress).days + 1; Ratio = round(cycle/original, 2)); `build_sheetspecs(bundle, diag) -> dict[str, SheetSpec]` with exactly the six machine sheet keys.
 
 - [ ] **Step 1: Write the failing tests**
 
