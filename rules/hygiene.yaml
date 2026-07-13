@@ -1,0 +1,14 @@
+# Team hygiene rules (spec section 5). `jql` is evaluated by Jira at extract
+# time; the extract adapter stores matching keys under the rule's name in the
+# bundle's hygiene.json. `derived` names a built-in check from
+# tentpole.hygiene.DERIVED_CHECKS; when both are present they AND together.
+hygiene:
+  - name: unanchored-work
+    severity: red
+    jql: "fixVersion is EMPTY"
+    derived: inherits_no_fixversion
+    message: "No milestone attached (directly or via epic)"
+  - name: orphan-task
+    severity: yellow
+    jql: 'issuetype != Bug AND parent is EMPTY'
+    message: "Task belongs to no epic"
