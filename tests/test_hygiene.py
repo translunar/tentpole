@@ -1,5 +1,7 @@
 import textwrap
 
+import pytest
+
 from tentpole.hygiene import Rule, evaluate, load_rules
 from tentpole.model import FixVersion, Issue
 
@@ -67,3 +69,41 @@ def test_missing_membership_means_no_flags(make_bundle):
     rule = Rule(name="orphan-task", severity="yellow", message="m",
                 jql="whatever")
     assert evaluate(b, [rule]) == []
+
+
+def test_load_rules_rejects_bad_severity(tmp_path):
+    p = tmp_path / "hygiene.yaml"
+    p.write_text(textwrap.dedent("""\
+        hygiene:
+          - name: bad-severity
+            severity: orange
+            jql: "fixVersion is EMPTY"
+            message: "bad"
+    """))
+    with pytest.raises(ValueError, match="bad-severity"):
+        load_rules(p)
+
+
+def test_load_rules_rejects_unknown_derived(tmp_path):
+    p = tmp_path / "hygiene.yaml"
+    p.write_text(textwrap.dedent("""\
+        hygiene:
+          - name: unknown-derived
+            severity: red
+            derived: does_not_exist
+            message: "bad"
+    """))
+    with pytest.raises(ValueError, match="unknown-derived"):
+        load_rules(p)
+
+
+def test_load_rules_rejects_neither_jql_nor_derived(tmp_path):
+    p = tmp_path / "hygiene.yaml"
+    p.write_text(textwrap.dedent("""\
+        hygiene:
+          - name: no-selector
+            severity: red
+            message: "bad"
+    """))
+    with pytest.raises(ValueError, match="no-selector"):
+        load_rules(p)

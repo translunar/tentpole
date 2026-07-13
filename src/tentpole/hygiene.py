@@ -40,9 +40,27 @@ DERIVED_CHECKS: dict[str, Callable[[Issue, Bundle], bool]] = {
 }
 
 
+VALID_SEVERITIES = {"red", "yellow"}
+
+
 def load_rules(path: Path) -> list[Rule]:
     raw = yaml.safe_load(Path(path).read_text())
-    return [Rule(**entry) for entry in raw["hygiene"]]
+    rules = [Rule(**entry) for entry in raw["hygiene"]]
+    for rule in rules:
+        if rule.severity not in VALID_SEVERITIES:
+            raise ValueError(
+                f"hygiene rule {rule.name!r}: severity {rule.severity!r} "
+                f"is not one of {sorted(VALID_SEVERITIES)}")
+        if rule.derived is not None and rule.derived not in DERIVED_CHECKS:
+            raise ValueError(
+                f"hygiene rule {rule.name!r}: unknown derived check "
+                f"{rule.derived!r} (known: {sorted(DERIVED_CHECKS)})")
+        if rule.jql is None and rule.derived is None:
+            raise ValueError(
+                f"hygiene rule {rule.name!r}: must set jql, derived, or "
+                f"both — a rule with neither would match every in-scope "
+                f"issue")
+    return rules
 
 
 def evaluate(bundle: Bundle, rules: list[Rule]) -> list[Flag]:
