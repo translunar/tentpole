@@ -49,6 +49,10 @@ pip install tentpole
      sheets:                        # ids from `tentpole bootstrap`
        issues: 111                  # or created by hand from
        epics: 222                   # `tentpole schema show`
+       fixversions: 333             # All six machine-owned sheets must
+       dependencies: 444            # be configured; sync produces plans
+       capacity: 555                # for each, and push refuses to let
+       accuracy: 666                # any plan go nowhere
    core:
      team: [ada, grace]
    ```
