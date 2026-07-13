@@ -127,12 +127,13 @@ PMO-imposed formats are additional render targets fed from the same core outputs
 - **What-if overlay** (compute against hypothetical placements, e.g. `plan check --me --move KEY:sprint4`): parked. Core purity (§3) makes this a small later addition; no v1 accommodation needed. During planning week, Jira itself serves as the sandbox (move, re-check, move back).
 - **Two-way sync of any kind.** Jira is the sole authoring surface for work data, permanently.
 - **Google Calendar / payroll integration** for availability: rejected in favor of the empirical throughput model.
+- **Planning-assistant agent** (LLM advisor for 60-day planning: semantic dependency-mining from ticket text, decomposition coaching for junior engineers, conversational delivery of core flags): parked, deliberately accommodated. The agent is a *consumer* of the core — it reads the data bundle + computed diagnostics and produces advisory suggestions that humans apply in Jira; it never writes to Jira/Smartsheet itself. Near-term implementation can be a Claude Code skill pointed at the tool's data directory (same mechanism as the existing program-classification skills). Design accommodations (both wanted anyway): diagnostics emitted as stable machine-readable JSON alongside rendered output, and the data-bundle format documented as a public interface.
 - **Unito trial:** available as 30-minute due diligence but not on the critical path.
 - **Smartsheet Data Shuttle:** noted as a possible simplification of the work deployment's load path (CSV import, no Jira admin) if org licensing covers it; does not affect core design because the CSV boundary already exists at the adapter seam.
 
 ## 11. Open questions
 
-1. **Implementation language** for the open-source core (not yet discussed; Python is the working assumption given the surrounding tooling, to be confirmed before implementation planning).
+1. ~~Implementation language~~ **Decided: Python** (easiest for colleagues to read and extend).
 2. **Jira Cloud vs. Data Center at work** — the internal CLI insulates the work deployment; the open-source extract adapter should target Cloud first (`/rest/api/3/search/jql` with token pagination; epic relationship via `parent`, since Epic Link is retired on Cloud).
 3. **Scope query** — the precise JQL defining "in-scope issues" (team project + externally linked issues reachable from dependency edges), and read access to other teams' projects for dependency status.
 4. **Snapshot store format** — flat files vs. SQLite for the history the load adapter persists (decision belongs to implementation planning).
