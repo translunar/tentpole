@@ -69,3 +69,33 @@ def test_update_ignores_unsynced_columns():
     current = {"T-1": {"Key": "T-1", "Summary": "same", "In Jira": True,
                        "My Notes": "human scribble"}}
     assert plan_changes(spec, current, SCHEMAS["issues"]) == []
+
+
+def test_update_emits_reparent_when_parent_differs():
+    spec = _spec(Row("T-1", {"Summary": "s"}, parent_key="E-2"))
+    current = {"T-1": {"Summary": "s", "_parent": "E-1"}}
+    changes = plan_changes(spec, current, SCHEMAS["issues"])
+    assert len(changes) == 1
+    c = changes[0]
+    assert (c.op, c.key, c.parent_key) == ("update", "T-1", "E-2")
+    assert c.cells == {}
+
+
+def test_no_reparent_when_state_lacks_parent_key():
+    spec = _spec(Row("T-1", {"Summary": "s"}, parent_key="E-2"))
+    current = {"T-1": {"Summary": "s"}}
+    assert plan_changes(spec, current, SCHEMAS["issues"]) == []
+
+
+def test_reparent_to_root_uses_empty_string():
+    spec = _spec(Row("T-1", {"Summary": "s"}, parent_key=None))
+    current = {"T-1": {"Summary": "s", "_parent": "E-1"}}
+    changes = plan_changes(spec, current, SCHEMAS["issues"])
+    assert len(changes) == 1
+    assert changes[0].parent_key == ""
+
+
+def test_no_update_when_parent_and_cells_unchanged():
+    spec = _spec(Row("T-1", {"Summary": "s"}, parent_key="E-1"))
+    current = {"T-1": {"Summary": "s", "_parent": "E-1"}}
+    assert plan_changes(spec, current, SCHEMAS["issues"]) == []

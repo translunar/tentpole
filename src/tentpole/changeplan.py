@@ -14,6 +14,10 @@ class Change:
     op: str                        # "add" | "update" | "remove" | "flag_gone"
     key: str
     cells: dict | None = None
+    # On "add": the parent row's key (hierarchy placement).
+    # On "update": None = leave parent alone; "" = move to top level;
+    # "KEY" = move under KEY. Only emitted when the current state
+    # tracks parents (a "_parent" key from `tentpole pull`).
     parent_key: str | None = None
 
 
@@ -38,8 +42,13 @@ def plan_changes(spec: SheetSpec, current: dict[str, dict],
             changes.append(Change("add", row.key, cells, row.parent_key))
             continue
         changed = {c: v for c, v in cells.items() if existing.get(c) != v}
-        if changed:
-            changes.append(Change("update", row.key, changed))
+        new_parent = None
+        if "_parent" in existing:
+            current_parent = existing["_parent"] or None
+            if row.parent_key != current_parent:
+                new_parent = row.parent_key or ""
+        if changed or new_parent is not None:
+            changes.append(Change("update", row.key, changed, new_parent))
     for key in sorted(set(current) - spec_keys):
         if schema.name == "issues":
             if current[key].get("In Jira") is not False:
