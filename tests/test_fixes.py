@@ -33,6 +33,29 @@ def test_inherit_epic_fixversion_mechanical(make_bundle):
         rule="unanchored")]
 
 
+def test_inherit_epic_fixversion_multiple_versions_is_suggested(
+        make_bundle):
+    """FINDING 5: when the epic carries MORE THAN ONE fix version,
+    taking fix_versions[0] is a list-order coin flip, not a mechanical
+    inference. It must be labeled "suggested" so `fix apply --all`'s
+    mechanical-only batch accept cannot apply it unreviewed -- that is
+    the only one of these findings that touches the Jira-write path."""
+    bundle = make_bundle(
+        issues=[
+            _issue("E-1", issue_type="Epic", fix_versions=["R1", "R2"]),
+            _issue("T-1", epic_key="E-1"),
+        ],
+        hygiene_memberships={"unanchored": ["T-1"]})
+    rules = [Rule(name="unanchored", severity="red", message="m",
+                  jql="fixVersion is EMPTY",
+                  fix="inherit_epic_fixversion")]
+    out = propose(bundle, rules)
+    assert out == [Proposal(
+        issue="T-1", action="set_fix_version", value="R1",
+        rationale="epic E-1 carries R1", confidence="suggested",
+        rule="unanchored")]
+
+
 def test_inherit_skips_when_epic_has_no_fixversion(make_bundle):
     bundle = make_bundle(
         issues=[

@@ -16,7 +16,21 @@ BASE_FIELDS = ["summary", "issuetype", "status", "assignee",
                "issuelinks"]
 
 _CATEGORY = {"new": "todo", "indeterminate": "in_progress",
-             "done": "done"}
+             "done": "done", "undefined": "todo"}
+
+
+def _status_category(key: str) -> str:
+    try:
+        return _CATEGORY[key]
+    except KeyError:
+        # Fail loudly but actionably: a genuinely unknown statusCategory
+        # key must still stop the extract (silently guessing would hide a
+        # broken sync), but name the offending key rather than let a bare
+        # KeyError surface.
+        raise KeyError(
+            f"unknown Jira statusCategory key {key!r}; known keys are "
+            f"{sorted(_CATEGORY)} -- update tentpole's _CATEGORY map"
+        ) from None
 
 
 def _headers(cfg: JiraConfig) -> dict:
@@ -47,7 +61,7 @@ def _search_pages(cfg, jql, fields, *, expand=None, http=request):
 
 def fetch_status_categories(cfg, http=request) -> dict[str, str]:
     statuses = _call(cfg, "GET", "/rest/api/3/status", http=http)
-    return {s["name"]: _CATEGORY[s["statusCategory"]["key"]]
+    return {s["name"]: _status_category(s["statusCategory"]["key"])
             for s in statuses}
 
 
@@ -89,7 +103,7 @@ def parse_issue(raw: dict, cfg: JiraConfig, categories: dict[str, str],
                 programs: dict[str, str],
                 external: bool = False) -> dict:
     f = raw["fields"]
-    status_category = _CATEGORY[f["status"]["statusCategory"]["key"]]
+    status_category = _status_category(f["status"]["statusCategory"]["key"])
     tt = f.get("timetracking") or {}
     parent = f.get("parent")
     epic_key = parent["key"] if parent else None

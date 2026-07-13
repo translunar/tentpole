@@ -1,16 +1,41 @@
 import json
 import urllib.request
 
+import pytest
+
 from tentpole.adapters.config import SmartsheetConfig
-from tentpole.adapters.smartsheet_load import push_plan
+from tentpole.adapters.smartsheet_load import push_plan, push_plans
 from tentpole.cli import main
+from tentpole.schema import SCHEMAS
 
 CFG = SmartsheetConfig(base_url="https://x/2.0", token="t",
                        sheets={"issues": 111})
 
+ISSUES_SCHEMA = SCHEMAS["issues"]
+
+# FINDING 1 fixture correction: this must present a COMPLETE,
+# schema-conformant set of columns for the "issues" schema (17 columns),
+# not a 3-column subset -- a subset used to let push_plan silently drop
+# every cell for the missing columns. "Summary" (11) and "In Jira" (12)
+# keep their original ids because several tests below assert those exact
+# columnId values.
 COLS = {"columns": [
     {"id": 10, "title": "Key", "primary": True},
     {"id": 11, "title": "Summary"},
+    {"id": 20, "title": "Type"},
+    {"id": 21, "title": "Status"},
+    {"id": 22, "title": "Assignee"},
+    {"id": 23, "title": "Original Est"},
+    {"id": 24, "title": "Remaining Est"},
+    {"id": 25, "title": "Epic"},
+    {"id": 26, "title": "Fix Versions"},
+    {"id": 27, "title": "Sprint"},
+    {"id": 28, "title": "Program"},
+    {"id": 29, "title": "Blocked By"},
+    {"id": 30, "title": "Blocks"},
+    {"id": 31, "title": "Hygiene"},
+    {"id": 32, "title": "In Progress"},
+    {"id": 33, "title": "Done"},
     {"id": 12, "title": "In Jira"},
 ]}
 
@@ -30,7 +55,7 @@ def test_adds_in_two_waves_parents_first(fake_http):
                    "result": [{"id": 901}]})
     changes = [_add("T-1", {"Summary": "t"}, parent="E-1"),
                _add("E-1", {"Summary": "e"})]
-    result = push_plan(CFG, 111, changes, {}, http=fake_http)
+    result = push_plan(CFG, 111, changes, {}, ISSUES_SCHEMA, http=fake_http)
     assert result["added"] == 2 and result["failed"] == []
     wave1 = fake_http.calls[1]["body"]
     wave2 = fake_http.calls[2]["body"]
@@ -50,7 +75,7 @@ def test_partial_success_reports_failures(fake_http):
                         "error": {"message": "bad value"}}]})
     changes = [_add("A-1", {"Summary": "ok"}),
                _add("A-2", {"Summary": "bad"})]
-    result = push_plan(CFG, 111, changes, {}, http=fake_http)
+    result = push_plan(CFG, 111, changes, {}, ISSUES_SCHEMA, http=fake_http)
     assert result["added"] == 1
     assert result["failed"] == [
         {"op": "add", "key": "A-2", "error": "bad value"}]
@@ -68,7 +93,7 @@ def test_updates_and_flag_gone_share_bulk_put(fake_http):
         {"op": "flag_gone", "key": "T-2",
          "cells": {"In Jira": False}, "parent_key": None},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     assert result["updated"] == 2
     body = fake_http.calls[1]["body"]
     assert body[0] == {"id": 900,
@@ -89,7 +114,7 @@ def test_reparent_is_a_separate_put_wave(fake_http):
          "parent_key": "E-2"},
         {"op": "update", "key": "T-9", "cells": {}, "parent_key": ""},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     body = fake_http.calls[1]["body"]
     assert body == [{"id": 900, "parentId": 800},
                     {"id": 901, "parentId": None}]
@@ -106,7 +131,7 @@ def test_removes_and_missing_rows(fake_http):
         {"op": "update", "key": "GHOST", "cells": {"Summary": "x"},
          "parent_key": None},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     assert result["removed"] == 1
     assert fake_http.calls[1]["params"]["ids"] == "700"
     assert result["failed"] == [
@@ -151,7 +176,7 @@ def test_reparent_put_failure_caught_and_reported(fake_http):
         {"op": "update", "key": "T-1", "cells": {},
          "parent_key": "E-99"},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     # The reparent PUT came back with a failure; it must be in result["failed"]
     assert len(result["failed"]) == 1
     assert result["failed"][0]["op"] == "update"
@@ -178,7 +203,7 @@ def test_delete_reports_actual_removed_count(fake_http):
         {"op": "remove", "key": "C-2", "cells": None,
          "parent_key": None},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     # Two rows were requested for deletion but the API only reports one
     # actually removed (C-2 was presumably already gone).
     assert result["removed"] == 1
@@ -195,7 +220,7 @@ def test_reparent_unresolved_target_not_silently_root(fake_http):
         {"op": "update", "key": "T-1", "cells": {},
          "parent_key": "GHOST-EPIC"},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     assert result["updated"] == 0
     assert len(result["failed"]) == 1
     assert result["failed"][0]["op"] == "update"
@@ -283,10 +308,112 @@ def test_remove_missing_row_recorded_as_failure(fake_http):
         {"op": "remove", "key": "GHOST", "cells": None,
          "parent_key": None},
     ]
-    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA, http=fake_http)
     assert result["removed"] == 1
     assert result["failed"] == [
         {"op": "remove", "key": "GHOST",
          "error": "row not found in sheet state"}]
     # The DELETE call only referenced the resolvable row.
     assert fake_http.calls[1]["params"]["ids"] == "700"
+
+
+# --- review round: missing-column and unconfigured-sheet findings -----
+
+def test_push_plan_raises_on_missing_synced_column(fake_http):
+    """REVIEW FINDING 1: a column the schema expects (e.g. a human
+    typo'd "Remaining Est" while hand-building the sheet from `tentpole
+    schema show`) but that is absent from the live sheet must fail
+    loudly. Previously `_cells_payload`'s `name in col_ids` guard
+    silently dropped every cell for that column on every add/update
+    while still tallying the row as a success -- the sync never
+    converged and capacity planning silently ran on blanks."""
+    bad_cols = {"columns": [c for c in COLS["columns"]
+                            if c["title"] != "Remaining Est"]}
+    fake_http.add("GET", "/sheets/111", bad_cols)
+    with pytest.raises(ValueError, match="Remaining Est"):
+        push_plan(CFG, 111, [], {}, ISSUES_SCHEMA, http=fake_http)
+
+
+def test_cli_push_missing_column_exits_nonzero(tmp_path, monkeypatch,
+                                               capsys):
+    """REVIEW FINDING 1, CLI-level: the missing-column failure must
+    reach the real `tentpole push` exit code end to end, not just show
+    up in an intermediate dict."""
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+    monkeypatch.setenv("S", "tok")
+
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text(json.dumps([
+        {"op": "update", "key": "T-1",
+         "cells": {"Remaining Est": 3.0}, "parent_key": None},
+    ]))
+    (state_dir / "issues.json").write_text(json.dumps({
+        "T-1": {"_row_id": 900, "_parent": None},
+    }))
+
+    bad_cols = {"columns": [c for c in COLS["columns"]
+                            if c["title"] != "Remaining Est"]}
+    routes = [("GET", "/sheets/1", bad_cols)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(plans_dir), "--state", str(state_dir)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "issues" in out
+    assert "Remaining Est" in out
+
+
+def test_push_plans_skips_sheet_without_configured_id(tmp_path, fake_http):
+    """REVIEW FINDING 2: `sync` writes a plan for every machine sheet,
+    but a sheet absent from tentpole.yaml's `sheets:` (e.g. the
+    README Quickstart config, which lists only "issues" and "epics")
+    must not have its plan silently dropped -- it must show up in the
+    report as an explicit failure naming the sheet."""
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           sheets={"issues": 111})   # "epics" absent
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text("[]")
+    (plans_dir / "epics.json").write_text(json.dumps([
+        {"op": "add", "key": "E-1", "cells": {"Summary": "e"},
+         "parent_key": None}]))
+    fake_http.add("GET", "/sheets/111", COLS)
+    report = push_plans(cfg, plans_dir, state_dir, http=fake_http)
+    assert "epics" in report
+    assert report["epics"]["failed"]
+    error = report["epics"]["failed"][0]["error"]
+    assert "SKIPPED" in error and "epics" in error
+
+
+def test_cli_push_missing_sheet_id_exits_nonzero(tmp_path, monkeypatch,
+                                                 capsys):
+    """REVIEW FINDING 2, CLI-level: a plan for a sheet with no
+    configured id must reach the real `tentpole push` exit code, not
+    just an intermediate report dict."""
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+    monkeypatch.setenv("S", "tok")
+
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text("[]")
+    (plans_dir / "epics.json").write_text("[]")
+
+    routes = [("GET", "/sheets/1", COLS)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(plans_dir), "--state", str(state_dir)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "epics" in out
+    assert "SKIPPED" in out

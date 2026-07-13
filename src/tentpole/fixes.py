@@ -30,10 +30,16 @@ def _inherit_epic_fixversion(bundle: Bundle,
         epic = bundle.issue(issue.epic_key)
         if epic and epic.fix_versions:
             version = epic.fix_versions[0]
+            # When the epic carries more than one fix version, taking
+            # index [0] is a list-order coin flip, not a mechanical
+            # inference -- label it "suggested" so `fix apply --all`'s
+            # mechanical-only batch accept cannot apply it unreviewed.
+            confidence = ("mechanical" if len(epic.fix_versions) == 1
+                         else "suggested")
             out.append(Proposal(
                 issue=key, action="set_fix_version", value=version,
                 rationale=f"epic {epic.key} carries {version}",
-                confidence="mechanical"))
+                confidence=confidence))
     return out
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tentpole.adapters.config import SmartsheetConfig
 from tentpole.adapters.http import request
-from tentpole.schema import SCHEMAS
+from tentpole.schema import SCHEMAS, SheetSchema
 
 
 def _headers(cfg: SmartsheetConfig) -> dict:
@@ -128,8 +128,23 @@ def _push_adds(cfg, sheet_id, wave, col_ids, row_ids, result,
 
 
 def push_plan(cfg, sheet_id: int, changes: list[dict],
-              state: dict[str, dict], http=request) -> dict:
+              state: dict[str, dict], schema: SheetSchema,
+              http=request) -> dict:
     col_ids = _column_ids(cfg, sheet_id, http=http)
+    missing = sorted(set(schema.synced_names()) - set(col_ids))
+    if missing:
+        # Fail loudly but actionably (same posture as humansheets._number):
+        # a column the schema expects is absent from the live sheet, so
+        # every cell for it would otherwise be silently dropped from every
+        # add/update, the row still tallied as a success, and the sync
+        # would never converge (pull can't read back what push never
+        # wrote). Refuse rather than degrade quietly.
+        raise ValueError(
+            f"sheet {schema.name!r} (id {sheet_id}) is missing column(s) "
+            f"{missing} required by the {schema.name!r} schema; the live "
+            f"sheet only has {sorted(col_ids)}. Recreate the missing "
+            f"column(s) exactly as named by `tentpole schema show` before "
+            f"pushing.")
     row_ids = {key: cells["_row_id"] for key, cells in state.items()
                if isinstance(cells, dict) and "_row_id" in cells}
     result = {"added": 0, "updated": 0, "removed": 0, "failed": []}
@@ -215,19 +230,31 @@ def push_plans(cfg, plans_dir: Path, state_dir: Path,
                http=request) -> dict[str, dict]:
     plans_dir, state_dir = Path(plans_dir), Path(state_dir)
     report = {}
-    for name in sorted(cfg.sheets):
-        schema = SCHEMAS.get(name)
-        if schema is None or schema.owned != "machine":
+    # Iterate the plans `sync` actually produced (one per machine sheet),
+    # not cfg.sheets: a machine sheet missing from tentpole.yaml must be
+    # reported as skipped, not silently dropped (spec: a silently failing
+    # sync must be impossible -- see the README Quickstart, which lists
+    # only "issues" and "epics").
+    for name, schema in SCHEMAS.items():
+        if schema.owned != "machine":
             continue
         plan_path = plans_dir / f"{name}.json"
         if not plan_path.exists():
+            continue
+        if name not in cfg.sheets:
+            report[name] = {
+                "added": 0, "updated": 0, "removed": 0,
+                "failed": [{
+                    "op": "push", "key": name,
+                    "error": f"SKIPPED (no sheet id configured for "
+                             f"{name!r} in tentpole.yaml)"}]}
             continue
         changes = json.loads(plan_path.read_text())
         state_path = state_dir / f"{name}.json"
         state = (json.loads(state_path.read_text())
                  if state_path.exists() else {})
         report[name] = push_plan(cfg, cfg.sheets[name], changes, state,
-                                 http=http)
+                                 schema, http=http)
     return report
 
 

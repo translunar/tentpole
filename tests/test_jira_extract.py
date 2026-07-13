@@ -29,6 +29,32 @@ def test_status_categories_fetched(fake_http):
         "To Do": "todo", "Done": "done"}
 
 
+def test_status_category_undefined_maps_to_todo(fake_http):
+    """FINDING 3: Jira Cloud's real statusCategory keys are undefined /
+    new / indeterminate / done -- "undefined" is the "No Category"
+    bucket, common on imported/legacy workflows. Previously it was
+    absent from _CATEGORY, so a single such status made
+    fetch_status_categories die with a bare KeyError before one issue
+    was fetched."""
+    fake_http.add("GET", "/rest/api/3/status", [
+        {"name": "No Category", "statusCategory": {"key": "undefined"}},
+    ])
+    assert fetch_status_categories(CFG, http=fake_http) == {
+        "No Category": "todo"}
+
+
+def test_status_category_unknown_key_raises_actionable_error(fake_http):
+    """An unknown statusCategory key must still raise -- silently
+    guessing at a category would hide a broken sync -- but with a
+    message naming the offending key rather than a bare KeyError."""
+    fake_http.add("GET", "/rest/api/3/status", [
+        {"name": "Weird", "statusCategory": {"key": "mystery"}},
+    ])
+    with pytest.raises(KeyError,
+                       match="unknown Jira statusCategory key 'mystery'"):
+        fetch_status_categories(CFG, http=fake_http)
+
+
 def test_pagination_follows_next_page_token(fake_http):
     fake_http.add("POST", "/rest/api/3/search/jql",
                   {"issues": [_raw("A-1")], "nextPageToken": "tok2"})

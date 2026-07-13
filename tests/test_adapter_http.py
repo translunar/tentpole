@@ -57,3 +57,19 @@ def test_client_error_raises_immediately():
         request("GET", "https://x/api", {}, transport=t)
     assert exc.value.status == 404
     assert len(t.requests) == 1
+
+
+def test_retries_exhausted_raises_after_max_tries():
+    """FINDING 4: every attempt returns a retryable status (503) --
+    request() must retry up to max_tries times and then raise HttpError
+    on the final attempt, rather than looping forever or swallowing the
+    failure. This is the only network primitive in the project and its
+    retries-exhausted boundary previously had no test."""
+    t = ScriptedTransport(*[(503, {}, "unavailable")] * 5)
+    sleeps = []
+    with pytest.raises(HttpError) as exc:
+        request("GET", "https://x/api", {}, transport=t,
+               sleep=sleeps.append, max_tries=5)
+    assert exc.value.status == 503
+    assert len(t.requests) == 5
+    assert len(sleeps) == 4

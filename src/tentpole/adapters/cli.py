@@ -101,8 +101,16 @@ def _push(args) -> int:
     cfg = load_config(args.config)
     if cfg.smartsheet is None:
         raise SystemExit("config has no smartsheet: section")
-    report = smartsheet_load.push_plans(cfg.smartsheet, args.plans,
-                                        args.state)
+    try:
+        report = smartsheet_load.push_plans(cfg.smartsheet, args.plans,
+                                            args.state)
+    except ValueError as err:
+        # e.g. a sheet is missing a column the schema requires -- print
+        # it and drive a nonzero exit rather than let a bare traceback
+        # be the only signal (spec section 8: a silently failing sync
+        # must be impossible).
+        print(f"ERROR: {err}")
+        return 1
     failed = 0
     for name in sorted(report):
         r = report[name]
