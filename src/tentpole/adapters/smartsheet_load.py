@@ -229,3 +229,30 @@ def push_plans(cfg, plans_dir: Path, state_dir: Path,
         report[name] = push_plan(cfg, cfg.sheets[name], changes, state,
                                  http=http)
     return report
+
+
+_COLUMN_TYPES = {"TEXT": "TEXT_NUMBER", "NUMBER": "TEXT_NUMBER",
+                 "DATE": "DATE", "CHECKBOX": "CHECKBOX"}
+
+
+def bootstrap(cfg, http=request) -> dict[str, int]:
+    """Create all sheets from SCHEMAS. Lowest-priority path (spec
+    section 7): NOT integration-tested against SmartsheetGov; the
+    supported v1 path is manual creation from `tentpole schema show`."""
+    path = (f"/workspaces/{cfg.workspace_id}/sheets"
+            if cfg.workspace_id else "/sheets")
+    created = {}
+    for name, schema in SCHEMAS.items():
+        columns = []
+        for col in schema.columns:
+            spec = {"title": col.name,
+                    "type": _COLUMN_TYPES[col.type]}
+            if col.primary:
+                spec["primary"] = True
+                spec["type"] = "TEXT_NUMBER"
+            columns.append(spec)
+        resp = _call(cfg, "POST", path,
+                     body={"name": f"tentpole {name}",
+                           "columns": columns}, http=http)
+        created[name] = resp["result"]["id"]
+    return created

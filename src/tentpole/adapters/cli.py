@@ -44,6 +44,10 @@ def add_parsers(sub) -> None:
     ap.add_argument("--config", required=True, type=Path)
     ap.add_argument("--proposals", required=True, type=Path)
 
+    boot_cmd = sub.add_parser(
+        "bootstrap", help="create sheets from schemas (experimental)")
+    boot_cmd.add_argument("--config", required=True, type=Path)
+
 
 def dispatch(args) -> int | None:
     if args.command == "extract":
@@ -56,6 +60,8 @@ def dispatch(args) -> int | None:
         return _fix_propose(args)
     if args.command == "fix" and args.fix_command == "apply":
         return _fix_apply(args)
+    if args.command == "bootstrap":
+        return _bootstrap(args)
     return None
 
 
@@ -159,4 +165,20 @@ def _fix_apply(args) -> int:
                                 p["value"])
         applied += 1
     print(f"applied {applied}, skipped {skipped}")
+    return 0
+
+
+def _bootstrap(args) -> int:
+    cfg = load_config(args.config)
+    if cfg.smartsheet is None:
+        raise SystemExit("config has no smartsheet: section")
+    print("WARNING: bootstrap is not integration-tested against "
+          "SmartsheetGov; the supported path is manual creation from "
+          "`tentpole schema show`.")
+    created = smartsheet_load.bootstrap(cfg.smartsheet)
+    print("created sheets -- add to tentpole.yaml:")
+    print("smartsheet:")
+    print("  sheets:")
+    for name in created:
+        print(f"    {name}: {created[name]}")
     return 0
