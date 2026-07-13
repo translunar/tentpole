@@ -1,0 +1,56 @@
+from datetime import date
+
+from tentpole.diagnostics import assemble
+from tentpole.hygiene import Rule
+from tentpole.model import Issue, Link
+from tentpole.sheets import issues_sheet
+
+
+def _task(key, **kw):
+    base = dict(summary="t", issue_type="Task", status_category="todo")
+    kw.setdefault("status_category", base.pop("status_category"))
+    base.update(kw)
+    return Issue(key=key, **base)
+
+
+def test_issues_sheet_hierarchy_and_cells(make_bundle):
+    epic = Issue(key="E-1", summary="Epic one", issue_type="Epic",
+                 status_category="in_progress")
+    child = _task("T-1", assignee="ada", sprint_id=1, epic_key="E-1",
+                  original_estimate_days=5.0, remaining_estimate_days=2.0,
+                  fix_versions=["v1", "v2"], program="telemetry",
+                  first_in_progress=date(2026, 7, 10),
+                  links=[Link("Blocks", "inward", "X-1"),
+                         Link("Blocks", "outward", "Y-1")])
+    orphan = _task("T-2")
+    external = _task("X-1", external=True)
+    b = make_bundle(issues=[epic, child, orphan, external])
+    spec = issues_sheet(b, assemble(b))
+    assert spec.sheet == "issues"
+    rows = {r.key: r for r in spec.rows}
+    assert "X-1" not in rows                      # externals excluded
+    assert rows["T-1"].parent_key == "E-1"        # indented under epic
+    assert rows["E-1"].parent_key is None
+    assert rows["T-2"].parent_key is None
+    cells = rows["T-1"].cells
+    assert cells["Fix Versions"] == "v1, v2"
+    assert cells["Sprint"] == "S1"
+    assert cells["Blocked By"] == "X-1"
+    assert cells["Blocks"] == "Y-1"
+    assert cells["In Progress"] == "2026-07-10"
+    assert cells["Done"] is None
+    assert cells["In Jira"] is True
+    assert cells["Remaining Est"] == 2.0
+    # epics come before their children
+    keys = [r.key for r in spec.rows]
+    assert keys.index("E-1") < keys.index("T-1")
+
+
+def test_issues_sheet_hygiene_column(make_bundle):
+    b = make_bundle(issues=[_task("T-1")],
+                    hygiene_memberships={"orphan-task": ["T-1"]})
+    rules = [Rule(name="orphan-task", severity="yellow", message="No epic",
+                  jql="issuetype != Bug AND parent is EMPTY")]
+    spec = issues_sheet(b, assemble(b, rules=rules))
+    row = next(r for r in spec.rows if r.key == "T-1")
+    assert row.cells["Hygiene"] == "yellow:orphan-task"
