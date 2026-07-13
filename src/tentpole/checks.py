@@ -58,8 +58,9 @@ def team_subscription(bundle: Bundle, buckets: list[Bucket],
             cap = sum(throughput_for(bundle, p) * PLAN_SCALE[bucket.id]
                       for p in bundle.config.team)
         if total > cap:
+            pct = f" ({total / cap:.0%} subscribed)" if cap > 0 else ""
             findings.append(Finding(
                 "team_subscription", "red", "team", bucket.id,
                 f"{bucket.id}: {total:.1f}d demand vs {cap:.1f}d team "
-                f"capacity ({total / cap:.0%} subscribed)"))
+                f"capacity{pct}"))
     return findings

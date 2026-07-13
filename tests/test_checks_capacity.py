@@ -35,3 +35,13 @@ def test_team_subscription_counts_ghosts_and_tbd(make_bundle):
     assert [f.bucket_id for f in findings] == ["plan+1"]
     assert findings[0].subject == "team"
     assert "100.0" in findings[0].message
+
+
+def test_team_subscription_zero_capacity_does_not_crash(make_bundle):
+    b = make_bundle(config=Config(team=[]),
+                    ghosts=[Ghost(title="Orphan ghost", estimate_days=5.0,
+                                  target="plan+1")])
+    bks = buckets_for(b)
+    findings = team_subscription(b, bks, compile_demand(b, bks))
+    assert [f.bucket_id for f in findings] == ["plan+1"]
+    assert "subscribed" not in findings[0].message
