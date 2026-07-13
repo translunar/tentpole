@@ -15,7 +15,7 @@ Intended to be an open-source core with deployment-specific adapters (the work d
 - **Team practices:** fixVersions represent externally imposed milestones with dates. Epics are small, specific featuresets (used the way others use user stories). Both map to programs via an existing classification capability. An issue may belong to an epic, a fixVersion, both, or neither. The 60-day plan is six 10-day sprints in Jira; tickets (not epics) are placed into sprints during planning week. Tickets carry day-denominated time estimates. Vacation is handled implicitly: people scope less work into sprints where they'll be out.
 - **Actuals:** no reliable worklogs. "Actual" effort is approximated from status-transition timestamps (changelog) and, over time, estimate-churn history captured by the sync itself.
 - **Dependencies:** Jira issue links (blocks / is-blocked-by) generally exist across teams but have gaps. The remedy for a gap is always adding the link in Jira.
-- **Access:** no Jira admin. Read access to relevant projects plus API-token-level auth is assumed. Off-the-shelf connectors were researched (2026-07-12) and rejected: Smartsheet's native connector and Workato require a permanently-admin Jira account; none of the options address capacity analysis or estimation learning anyway.
+- **Access:** no Jira admin. Read access to relevant projects plus API-token-level auth is assumed. Work runs on **SmartsheetGov** (same API surface, `api.smartsheetgov.com` base URL — adapter configuration, but a reason to integration-test anything API-shape-sensitive like bootstrap before trusting it). Off-the-shelf connectors were researched (2026-07-12) and rejected: Smartsheet's native connector and Workato require a permanently-admin Jira account; none of the options address capacity analysis or estimation learning anyway.
 - **Audiences:** Juno (planning), director/leadership (dashboards), org PMO (may impose formats — treated as additional render targets). Team members interact through Jira and a CLI planning check, not by editing Smartsheet.
 
 ## 3. Architecture
@@ -31,7 +31,7 @@ Jira REST or Jira CLI → pure functions: raw data bundle    → Smartsheet API 
 - **The core performs no I/O.** Input: a bundle of plain data files — issues (status, assignee, estimates, epic parent, fixVersions, sprint, links, program mapping), sprint definitions with dates, fixVersion definitions with release dates, changelog extracts, prior snapshot history, and the human-authored sheets read back from Smartsheet. Output: **SheetSpecs** (declarative descriptions of target sheet contents), append-only snapshot records, rendered reports, and diagnostics.
 - **Adapters are dumb.** Extract adapters fetch and dump. Load adapters execute an explicit change plan. The work-vs-open-source split is exactly the adapter boundary; nothing proprietary touches the core.
 - **Change planning lives in the core.** Given a SheetSpec and current sheet state, the core computes an explicit plan: row adds, updates, archive-flags — keyed on Jira issue key, never touching human-owned sheets or columns, never blind-rewriting. The load adapter just executes it.
-- **What-if is first-class.** The transform accepts an optional overlay of hypothetical placements (ticket → sprint reassignments) so future interactive surfaces are rendering problems, not re-architectures. (UI beyond the CLI is explicitly parked; see §10.)
+- **Purity is the extensibility hook.** Because the core takes all inputs as plain data, features like a what-if overlay (compute against hypothetical ticket placements) are cheap later additions, not architectural commitments now (parked; see §10).
 
 ## 4. Unified demand model
 
@@ -88,6 +88,8 @@ Partially scoped epics work across the boundary: an epic's demand = its real tic
 | Future Work | pre-ticket item (ghost) | title, program, owner or TBD, rough estimate, target placement (sprint / plan bucket / fixVersion), intended epic, Jira key column — once filled, the ghost is superseded by the real ticket; mismatches flagged by the sync |
 | Exceptions | person × sprint | day cost or multiplier for known atypical sprints |
 
+**Provisioning:** sheet schemas are declared once in the core (columns, types, primary column, picklists) and used two ways: the sync validates live sheets against them on every run, and a `bootstrap` command can create the full workspace from them via the Smartsheet API. Bootstrap is **lowest implementation priority** — it needs integration testing against SmartsheetGov before it can be trusted, so the supported v1 path is manual sheet creation from a schema listing the tool prints (`schema show`). Reports and dashboards cannot be created via the API (read/copy only, per current docs — reverify during implementation); they are built by hand once over the precomputed columns, and the API's workspace-copy (which carries reports/dashboards and rewires references) covers any future need to stamp out copies.
+
 Rollups/derived values are **computed by the core, not by Smartsheet cross-sheet formulas** (testable pure functions over fragile formula webs). Smartsheet provides what it is good at: reports, dashboards, conditional formatting, Gantt — over precomputed columns. Sheet limits (20k rows / 500k cells) are respected by scoping mirrors per team and letting Reports roll up if scope ever grows.
 
 ## 8. Sync run lifecycle
@@ -121,7 +123,8 @@ PMO-imposed formats are additional render targets fed from the same core outputs
 
 ## 10. Out of scope / parked
 
-- **Interactive planning UI** (local web what-if cockpit or richer): parked by explicit decision. The what-if overlay hook in the core (§3) is the only present-day accommodation.
+- **Interactive planning UI** (local web what-if cockpit or richer): parked by explicit decision.
+- **What-if overlay** (compute against hypothetical placements, e.g. `plan check --me --move KEY:sprint4`): parked. Core purity (§3) makes this a small later addition; no v1 accommodation needed. During planning week, Jira itself serves as the sandbox (move, re-check, move back).
 - **Two-way sync of any kind.** Jira is the sole authoring surface for work data, permanently.
 - **Google Calendar / payroll integration** for availability: rejected in favor of the empirical throughput model.
 - **Unito trial:** available as 30-minute due diligence but not on the critical path.
