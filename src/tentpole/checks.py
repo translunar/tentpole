@@ -135,3 +135,53 @@ def tentpole_runway(bundle: Bundle, buckets: list[Bucket],
                 f"only {total_slack:.1f}d of capacity before {deadline} — "
                 f"~{remaining - total_slack:.0f}d short"))
     return findings
+
+
+def dependency_readiness(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
+    findings = []
+    sprints_by_id = {f"sprint:{s.id}": s for s in bundle.sprints}
+    for issue in bundle.issues:
+        if issue.status_category == "done" or issue.external:
+            continue
+        my_bucket = bucket_for_issue(issue, bundle, buckets)
+        if not my_bucket.startswith("sprint:"):
+            continue
+        my_start = sprints_by_id[my_bucket].start
+        subject = issue.assignee or "unassigned"
+        for link in issue.links:
+            if link.type != "Blocks" or link.direction != "inward":
+                continue
+            other = bundle.issue(link.other_key)
+            if other is None:
+                findings.append(Finding(
+                    "dependency_readiness", "yellow", subject, my_bucket,
+                    f"{issue.key} is blocked by {link.other_key}, "
+                    f"which is not in data"))
+                continue
+            if other.status_category == "done":
+                continue
+            other_bucket = bucket_for_issue(other, bundle, buckets)
+            if not other_bucket.startswith("sprint:"):
+                findings.append(Finding(
+                    "dependency_readiness", "red", subject, my_bucket,
+                    f"{issue.key} is blocked by {other.key}, which is open "
+                    f"and unscheduled"))
+            elif sprints_by_id[other_bucket].end > my_start:
+                findings.append(Finding(
+                    "dependency_readiness", "red", subject, my_bucket,
+                    f"{issue.key} starts {my_bucket} but its blocker "
+                    f"{other.key} finishes {other_bucket}"))
+    return findings
+
+
+def ghost_claims(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
+    findings = []
+    sprint_ids = {bk.id for bk in buckets if bk.id.startswith("sprint:")}
+    for ghost in bundle.ghosts:
+        if ghost.jira_key or ghost.target not in sprint_ids:
+            continue
+        findings.append(Finding(
+            "ghost_claims", "yellow", ghost.owner or "TBD", ghost.target,
+            f"'{ghost.title}' ({ghost.estimate_days:.1f}d) is targeted at "
+            f"{ghost.target} but has no Jira ticket — ticket it or push it"))
+    return findings
