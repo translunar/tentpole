@@ -94,23 +94,35 @@ def _tally(resp, items, counter, result, count=True) -> set[int]:
 
 def _push_adds(cfg, sheet_id, wave, col_ids, row_ids, result,
                http=request) -> None:
-    body = []
+    body, included = [], []
     for c in wave:
-        row = {"cells": _cells_payload(c.get("cells") or {}, col_ids)}
         parent = c.get("parent_key")
-        if parent and parent in row_ids:
+        if parent and parent not in row_ids:
+            # A named parent that never resolved (not the same as "no
+            # parent" -- an add with no parent_key legitimately goes to
+            # toBottom). Refuse rather than silently landing at root.
+            result["failed"].append(
+                {"op": c["op"], "key": c["key"],
+                 "error": f"add parent {parent!r} not found in "
+                          "sheet state"})
+            continue
+        row = {"cells": _cells_payload(c.get("cells") or {}, col_ids)}
+        if parent:
             row["parentId"] = row_ids[parent]
         else:
             row["toBottom"] = True
         body.append(row)
+        included.append(c)
+    if not included:
+        return
     resp = _call(cfg, "POST", f"/sheets/{sheet_id}/rows",
                  params={"allowPartialSuccess": "true"}, body=body,
                  http=http)
-    failed = _tally(resp, wave, "added", result)
+    failed = _tally(resp, included, "added", result)
     created = resp.get("result", [])
     if isinstance(created, dict):
         created = [created]
-    ok = [c for i, c in enumerate(wave) if i not in failed]
+    ok = [c for i, c in enumerate(included) if i not in failed]
     for c, row in zip(ok, created):
         row_ids[c["key"]] = row["id"]
 
@@ -153,24 +165,49 @@ def push_plan(cfg, sheet_id: int, changes: list[dict],
     if reparents:
         # Location changes ride in their own PUT: Smartsheet rejects
         # mixing location and cell updates in one row object.
-        body = [{"id": row_ids[c["key"]],
-                 "parentId": (row_ids.get(c["parent_key"])
-                              if c["parent_key"] else None)}
-                for c in reparents]
-        resp = _call(cfg, "PUT", f"/sheets/{sheet_id}/rows",
-                     params={"allowPartialSuccess": "true"}, body=body,
-                     http=http)
-        # Tally failures but do NOT increment "updated" for location-only changes
-        _tally(resp, reparents, "updated", result, count=False)
+        body, resolved = [], []
+        for c in reparents:
+            target = c["parent_key"]
+            if target == "":
+                body.append({"id": row_ids[c["key"]], "parentId": None})
+                resolved.append(c)
+            elif target in row_ids:
+                body.append({"id": row_ids[c["key"]],
+                             "parentId": row_ids[target]})
+                resolved.append(c)
+            else:
+                # A named reparent target that never resolved must NOT
+                # fall back to parentId: null (silent move-to-root).
+                result["failed"].append(
+                    {"op": c["op"], "key": c["key"],
+                     "error": f"reparent target {target!r} not found "
+                              "in sheet state"})
+        if body:
+            resp = _call(cfg, "PUT", f"/sheets/{sheet_id}/rows",
+                         params={"allowPartialSuccess": "true"},
+                         body=body, http=http)
+            # Tally failures but do NOT increment "updated" for
+            # location-only changes.
+            _tally(resp, resolved, "updated", result, count=False)
 
-    removes = [c for c in changes
-               if c["op"] == "remove" and c["key"] in row_ids]
-    if removes:
-        ids = ",".join(str(row_ids[c["key"]]) for c in removes)
-        _call(cfg, "DELETE", f"/sheets/{sheet_id}/rows",
-              params={"ids": ids, "ignoreRowsNotFound": "true"},
-              http=http)
-        result["removed"] = len(removes)
+    removes = [c for c in changes if c["op"] == "remove"]
+    found_removes = [c for c in removes if c["key"] in row_ids]
+    for c in removes:
+        if c["key"] not in row_ids:
+            result["failed"].append(
+                {"op": c["op"], "key": c["key"],
+                 "error": "row not found in sheet state"})
+    if found_removes:
+        ids = ",".join(str(row_ids[c["key"]]) for c in found_removes)
+        resp = _call(cfg, "DELETE", f"/sheets/{sheet_id}/rows",
+                     params={"ids": ids, "ignoreRowsNotFound": "true"},
+                     http=http)
+        # Smartsheet's DELETE response reports the row IDs it actually
+        # removed in "result"; ignoreRowsNotFound=true means rows
+        # already absent are skipped without error, so the requested
+        # count is not the same as what happened. Fall back to the
+        # requested set only if the response omits "result" entirely.
+        result["removed"] += len(resp.get("result", found_removes))
     return result
 
 

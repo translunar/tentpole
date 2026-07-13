@@ -1,3 +1,6 @@
+import json
+import urllib.request
+
 from tentpole.adapters.config import SmartsheetConfig
 from tentpole.adapters.smartsheet_load import push_plan
 from tentpole.cli import main
@@ -156,3 +159,134 @@ def test_reparent_put_failure_caught_and_reported(fake_http):
     assert "bad parentId" in result["failed"][0]["error"]
     # updated should still be 0 (location-only change that failed)
     assert result["updated"] == 0
+
+
+def test_delete_reports_actual_removed_count(fake_http):
+    """FINDING 1: the DELETE wave must report what the API actually
+    removed, not the requested count. ignoreRowsNotFound=true means
+    rows already absent are silently skipped by Smartsheet -- if the
+    API's response says fewer rows were removed than requested, that
+    must show up in result["removed"]."""
+    fake_http.add("GET", "/sheets/111", COLS)
+    fake_http.add("DELETE", "/sheets/111/rows",
+                  {"message": "SUCCESS", "result": [700]})
+    state = {"C-1": {"_row_id": 700, "_parent": None},
+             "C-2": {"_row_id": 701, "_parent": None}}
+    changes = [
+        {"op": "remove", "key": "C-1", "cells": None,
+         "parent_key": None},
+        {"op": "remove", "key": "C-2", "cells": None,
+         "parent_key": None},
+    ]
+    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    # Two rows were requested for deletion but the API only reports one
+    # actually removed (C-2 was presumably already gone).
+    assert result["removed"] == 1
+
+
+def test_reparent_unresolved_target_not_silently_root(fake_http):
+    """FINDING 2: a reparent whose target key does not resolve in
+    row_ids must NOT silently fall back to moving the row to root
+    (parentId: null). It must be refused and recorded as a failure --
+    no PUT may be issued for it."""
+    fake_http.add("GET", "/sheets/111", COLS)
+    state = {"T-1": {"_row_id": 900, "_parent": "E-1"}}
+    changes = [
+        {"op": "update", "key": "T-1", "cells": {},
+         "parent_key": "GHOST-EPIC"},
+    ]
+    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    assert result["updated"] == 0
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["op"] == "update"
+    assert result["failed"][0]["key"] == "T-1"
+    assert "GHOST-EPIC" in result["failed"][0]["error"]
+    # Only the initial GET (column ids) happened -- no reparent PUT was
+    # issued for an unresolvable target. (fake_http raises on any
+    # unqueued request, so an issued-but-unexpected PUT would already
+    # have failed this test above; this just makes it explicit.)
+    assert len(fake_http.calls) == 1
+
+
+def _fake_urlopen(routes):
+    class _Resp:
+        def __init__(self, payload):
+            self.status = 200
+            self.headers = {}
+            self._body = json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def _urlopen(req, *args, **kwargs):
+        method = req.get_method()
+        url = req.full_url
+        for want_method, want_path, payload in routes:
+            if want_method == method and want_path in url:
+                return _Resp(payload)
+        raise AssertionError(f"unexpected request: {method} {url}")
+    return _urlopen
+
+
+def test_cli_push_reparent_failure_drives_nonzero_exit(tmp_path,
+                                                        monkeypatch,
+                                                        capsys):
+    """FINDING 2, CLI-level: an unresolvable reparent target must not
+    just land in result["failed"] -- it has to reach the real `tentpole
+    push` exit code, end to end through the actual push_plan logic (not
+    a stubbed push_plans like test_cli_push_exits_nonzero_on_failures
+    uses)."""
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+    monkeypatch.setenv("S", "tok")
+
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text(json.dumps([
+        {"op": "update", "key": "T-1", "cells": {},
+         "parent_key": "GHOST-EPIC"},
+    ]))
+    (state_dir / "issues.json").write_text(json.dumps({
+        "T-1": {"_row_id": 900, "_parent": "E-1"},
+    }))
+
+    routes = [("GET", "/sheets/1", COLS)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(plans_dir), "--state", str(state_dir)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "T-1" in out
+    assert "GHOST-EPIC" in out
+
+
+def test_remove_missing_row_recorded_as_failure(fake_http):
+    """FINDING 3: a `remove` whose key is not in row_ids must record a
+    failure, symmetric with update/flag_gone, rather than being
+    silently dropped from the DELETE batch."""
+    fake_http.add("GET", "/sheets/111", COLS)
+    fake_http.add("DELETE", "/sheets/111/rows",
+                  {"message": "SUCCESS", "result": [700]})
+    state = {"C-1": {"_row_id": 700, "_parent": None}}
+    changes = [
+        {"op": "remove", "key": "C-1", "cells": None,
+         "parent_key": None},
+        {"op": "remove", "key": "GHOST", "cells": None,
+         "parent_key": None},
+    ]
+    result = push_plan(CFG, 111, changes, state, http=fake_http)
+    assert result["removed"] == 1
+    assert result["failed"] == [
+        {"op": "remove", "key": "GHOST",
+         "error": "row not found in sheet state"}]
+    # The DELETE call only referenced the resolvable row.
+    assert fake_http.calls[1]["params"]["ids"] == "700"
