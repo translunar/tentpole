@@ -85,6 +85,11 @@ def propose(bundle: Bundle, rules: list[Rule]) -> list[Proposal]:
         keys = bundle.hygiene_memberships.get(rule.name)
         if keys is None:
             keys = [f.key for f in evaluate(bundle, [rule])]
+        # Same exclusion evaluate() applies to flags: never propose
+        # edits to done or external issues.
+        keys = [k for k in keys
+                if (i := bundle.issue(k)) is not None
+                and i.status_category != "done" and not i.external]
         for p in STRATEGIES[rule.fix](bundle, sorted(set(keys))):
             out.append(replace(p, rule=rule.name))
     return out

@@ -97,3 +97,18 @@ def test_load_rules_rejects_unknown_fix(tmp_path):
         "    jql: 'a = b'\n    fix: teleport_to_done\n")
     with pytest.raises(ValueError, match="teleport_to_done"):
         load_rules(bad)
+
+
+def test_propose_excludes_done_and_external_issues(make_bundle):
+    bundle = make_bundle(
+        issues=[
+            _issue("E-1", issue_type="Epic", fix_versions=["R1"]),
+            _issue("T-1", epic_key="E-1", status_category="done"),
+            _issue("T-2", epic_key="E-1", external=True),
+            _issue("T-3", epic_key="E-1"),
+        ],
+        hygiene_memberships={"unanchored": ["T-1", "T-2", "T-3"]})
+    rules = [Rule(name="unanchored", severity="red", message="m",
+                  jql="fixVersion is EMPTY",
+                  fix="inherit_epic_fixversion")]
+    assert [p.issue for p in propose(bundle, rules)] == ["T-3"]
