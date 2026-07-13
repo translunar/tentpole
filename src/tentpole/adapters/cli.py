@@ -4,12 +4,15 @@ read the clock (as_of below); the core never does."""
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
 from tentpole.adapters import jira_extract, smartsheet_load
 from tentpole.adapters.config import load_config
+from tentpole.fixes import propose
 from tentpole.hygiene import load_rules
+from tentpole.model import load_bundle
 
 
 def add_parsers(sub) -> None:
@@ -28,6 +31,15 @@ def add_parsers(sub) -> None:
     push_cmd.add_argument("--plans", required=True, type=Path)
     push_cmd.add_argument("--state", required=True, type=Path)
 
+    fix_cmd = sub.add_parser("fix", help="hygiene fix proposals")
+    fix_sub = fix_cmd.add_subparsers(dest="fix_command", required=True)
+    prop = fix_sub.add_parser("propose",
+                              help="emit structured fix proposals")
+    prop.add_argument("--bundle", required=True, type=Path)
+    prop.add_argument("--rules", required=True, type=Path)
+    prop.add_argument("--out", type=Path, default=None)
+    prop.add_argument("--json", action="store_true")
+
 
 def dispatch(args) -> int | None:
     if args.command == "extract":
@@ -36,6 +48,8 @@ def dispatch(args) -> int | None:
         return _pull(args)
     if args.command == "push":
         return _push(args)
+    if args.command == "fix" and args.fix_command == "propose":
+        return _fix_propose(args)
     return None
 
 
@@ -90,3 +104,21 @@ def _push(args) -> int:
         failed += len(r["failed"])
     # Spec section 8: a silently failing sync must be impossible.
     return 1 if failed else 0
+
+
+def _fix_propose(args) -> int:
+    bundle = load_bundle(args.bundle)
+    rules = load_rules(args.rules)
+    proposals = propose(bundle, rules)
+    payload = [asdict(p) for p in proposals]
+    if args.out:
+        args.out.write_text(json.dumps(payload, indent=2))
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    elif not proposals:
+        print("no fix proposals.")
+    else:
+        for p in proposals:
+            print(f"[{p.confidence}] {p.issue}: {p.action} -> "
+                  f"{p.value}  ({p.rationale}; rule {p.rule})")
+    return 0

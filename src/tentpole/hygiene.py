@@ -18,6 +18,7 @@ class Rule:
     message: str
     jql: str | None = None
     derived: str | None = None
+    fix: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,12 @@ DERIVED_CHECKS: dict[str, Callable[[Issue, Bundle], bool]] = {
 }
 
 
+# Names only; the strategy functions live in tentpole.fixes (which
+# imports Rule from here -- keeping just the names on this side avoids
+# the import cycle). test_fixes asserts the two sets stay in lockstep.
+FIX_STRATEGY_NAMES = frozenset({
+    "inherit_epic_fixversion", "suggest_epic_from_siblings"})
+
 VALID_SEVERITIES = {"red", "yellow"}
 
 
@@ -55,6 +62,10 @@ def load_rules(path: Path) -> list[Rule]:
             raise ValueError(
                 f"hygiene rule {rule.name!r}: unknown derived check "
                 f"{rule.derived!r} (known: {sorted(DERIVED_CHECKS)})")
+        if rule.fix is not None and rule.fix not in FIX_STRATEGY_NAMES:
+            raise ValueError(
+                f"hygiene rule {rule.name!r}: unknown fix strategy "
+                f"{rule.fix!r} (known: {sorted(FIX_STRATEGY_NAMES)})")
         if rule.jql is None and rule.derived is None:
             raise ValueError(
                 f"hygiene rule {rule.name!r}: must set jql, derived, or "
