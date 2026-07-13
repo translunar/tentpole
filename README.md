@@ -108,10 +108,17 @@ pip install tentpole
 
 ## Releasing
 
+Releases are published to PyPI by CI (trusted publishing — no tokens).
+Tag a version and push the tag; `.github/workflows/publish.yml` runs the
+test suite, builds, and uploads:
+
 ```sh
-python -m build
-python -m twine upload dist/*
+git tag v0.2.1
+git push origin v0.2.1
 ```
+
+Do not `twine upload` by hand — the tag's CI job would then fail on
+PyPI's "file already exists".
 
 ## License
 
