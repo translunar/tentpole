@@ -72,6 +72,24 @@ def _column_ids(cfg, sheet_id, http=request) -> dict[str, int]:
     return {c["title"]: c["id"] for c in data.get("columns", [])}
 
 
+def _validate_columns(schema: SheetSchema, sheet_id: int,
+                      col_ids: dict) -> str | None:
+    # Fail loudly but actionably (same posture as humansheets._number):
+    # a column the schema expects is absent from the live sheet, so
+    # every cell for it would otherwise be silently dropped from every
+    # add/update, the row still tallied as a success, and the sync
+    # would never converge (pull can't read back what push never
+    # wrote). Refuse rather than degrade quietly.
+    missing = sorted(set(schema.synced_names()) - set(col_ids))
+    if not missing:
+        return None
+    return (f"sheet {schema.name!r} (id {sheet_id}) is missing column(s) "
+            f"{missing} required by the {schema.name!r} schema; the live "
+            f"sheet only has {sorted(col_ids)}. Recreate the missing "
+            f"column(s) exactly as named by `tentpole schema show` before "
+            f"pushing.")
+
+
 def _cells_payload(cells: dict, col_ids: dict) -> list[dict]:
     return [{"columnId": col_ids[name],
              "value": "" if value is None else value}
@@ -129,22 +147,12 @@ def _push_adds(cfg, sheet_id, wave, col_ids, row_ids, result,
 
 def push_plan(cfg, sheet_id: int, changes: list[dict],
               state: dict[str, dict], schema: SheetSchema,
-              http=request) -> dict:
-    col_ids = _column_ids(cfg, sheet_id, http=http)
-    missing = sorted(set(schema.synced_names()) - set(col_ids))
-    if missing:
-        # Fail loudly but actionably (same posture as humansheets._number):
-        # a column the schema expects is absent from the live sheet, so
-        # every cell for it would otherwise be silently dropped from every
-        # add/update, the row still tallied as a success, and the sync
-        # would never converge (pull can't read back what push never
-        # wrote). Refuse rather than degrade quietly.
-        raise ValueError(
-            f"sheet {schema.name!r} (id {sheet_id}) is missing column(s) "
-            f"{missing} required by the {schema.name!r} schema; the live "
-            f"sheet only has {sorted(col_ids)}. Recreate the missing "
-            f"column(s) exactly as named by `tentpole schema show` before "
-            f"pushing.")
+              http=request, col_ids: dict | None = None) -> dict:
+    if col_ids is None:
+        col_ids = _column_ids(cfg, sheet_id, http=http)
+        problem = _validate_columns(schema, sheet_id, col_ids)
+        if problem:
+            raise ValueError(problem)
     row_ids = {key: cells["_row_id"] for key, cells in state.items()
                if isinstance(cells, dict) and "_row_id" in cells}
     result = {"added": 0, "updated": 0, "removed": 0, "failed": []}
@@ -230,11 +238,11 @@ def push_plans(cfg, plans_dir: Path, state_dir: Path,
                http=request) -> dict[str, dict]:
     plans_dir, state_dir = Path(plans_dir), Path(state_dir)
     report = {}
+    targets = []
     # Iterate the plans `sync` actually produced (one per machine sheet),
     # not cfg.sheets: a machine sheet missing from tentpole.yaml must be
     # reported as skipped, not silently dropped (spec: a silently failing
-    # sync must be impossible -- see the README Quickstart, which lists
-    # only "issues" and "epics").
+    # sync must be impossible).
     for name, schema in SCHEMAS.items():
         if schema.owned != "machine":
             continue
@@ -249,12 +257,31 @@ def push_plans(cfg, plans_dir: Path, state_dir: Path,
                     "error": f"SKIPPED (no sheet id configured for "
                              f"{name!r} in tentpole.yaml)"}]}
             continue
+        targets.append((name, schema, plan_path))
+
+    # Pre-flight EVERY target sheet's columns before the first write: a
+    # schema mismatch discovered mid-loop would abort push after earlier
+    # sheets were already written, discarding the partial report and
+    # leaving a re-run against a stale state dir to double-apply adds.
+    col_ids_by_name = {}
+    problems = []
+    for name, schema, _ in targets:
+        col_ids = _column_ids(cfg, cfg.sheets[name], http=http)
+        problem = _validate_columns(schema, cfg.sheets[name], col_ids)
+        if problem:
+            problems.append(problem)
+        col_ids_by_name[name] = col_ids
+    if problems:
+        raise ValueError("\n".join(problems))
+
+    for name, schema, plan_path in targets:
         changes = json.loads(plan_path.read_text())
         state_path = state_dir / f"{name}.json"
         state = (json.loads(state_path.read_text())
                  if state_path.exists() else {})
         report[name] = push_plan(cfg, cfg.sheets[name], changes, state,
-                                 schema, http=http)
+                                 schema, http=http,
+                                 col_ids=col_ids_by_name[name])
     return report
 
 

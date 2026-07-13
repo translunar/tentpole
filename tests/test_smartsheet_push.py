@@ -417,3 +417,36 @@ def test_cli_push_missing_sheet_id_exits_nonzero(tmp_path, monkeypatch,
     assert code == 1
     assert "epics" in out
     assert "SKIPPED" in out
+
+
+def _cols_for(name, drop=None):
+    cols = []
+    for i, c in enumerate(SCHEMAS[name].columns):
+        col = {"id": 500 + i, "title": c.name}
+        if c.primary:
+            col["primary"] = True
+        cols.append(col)
+    if drop:
+        cols = [c for c in cols if c["title"] != drop]
+    return {"columns": cols}
+
+
+def test_preflight_validates_every_sheet_before_first_write(
+        tmp_path, fake_http):
+    # issues (first in SCHEMAS order) is valid; epics is missing a
+    # column. Without pre-flight, issues would be WRITTEN before the
+    # epics mismatch aborted the loop.
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           sheets={"issues": 111, "epics": 222})
+    fake_http.add("GET", "/sheets/111", COLS)
+    fake_http.add("GET", "/sheets/222", _cols_for("epics", drop="Runway"))
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    (plans / "issues.json").write_text(
+        json.dumps([_add("T-1", {"Summary": "s"})]))
+    (plans / "epics.json").write_text(
+        json.dumps([_add("E-1", {"Summary": "e"})]))
+    (tmp_path / "state").mkdir()
+    with pytest.raises(ValueError, match="Runway"):
+        push_plans(cfg, plans, tmp_path / "state", http=fake_http)
+    assert all(c["method"] == "GET" for c in fake_http.calls)
