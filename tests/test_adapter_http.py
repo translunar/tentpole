@@ -73,3 +73,14 @@ def test_retries_exhausted_raises_after_max_tries():
     assert exc.value.status == 503
     assert len(t.requests) == 5
     assert len(sleeps) == 4
+
+
+def test_retry_after_http_date_falls_back_to_exponential():
+    t = ScriptedTransport(
+        (429, {"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, ""),
+        (200, {}, "{}"))
+    sleeps = []
+    out = request("GET", "https://x/api", {}, transport=t,
+                  sleep=sleeps.append)
+    assert out == {}
+    assert sleeps == [1.0]        # exponential fallback, not a crash

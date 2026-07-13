@@ -54,7 +54,15 @@ def request(method: str, url: str, headers: dict, *,
         status, resp_headers, text = transport(method, url, headers, data)
         if status in RETRYABLE and attempt < max_tries - 1:
             retry_after = resp_headers.get("Retry-After")
-            sleep(float(retry_after) if retry_after else delay)
+            try:
+                wait = float(retry_after) if retry_after else delay
+            except ValueError:
+                # RFC 9110 also allows an HTTP-date form; honoring it
+                # would need a clock read, which this module forbids.
+                # The exponential fallback never under-waits the
+                # schedule we'd use with no header at all.
+                wait = delay
+            sleep(wait)
             delay *= 2
             continue
         if status >= 400:
