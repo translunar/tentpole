@@ -14,7 +14,7 @@ import yaml
 class JiraConfig:
     base_url: str
     email: str
-    token: str
+    token: str = field(repr=False)
     scope_jql: str
     projects: tuple[str, ...] = ()
     board_id: int | None = None
@@ -26,7 +26,7 @@ class JiraConfig:
 @dataclass(frozen=True)
 class SmartsheetConfig:
     base_url: str
-    token: str
+    token: str = field(repr=False)
     sheets: dict[str, int] = field(default_factory=dict)
     workspace_id: int | None = None
 

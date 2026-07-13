@@ -63,3 +63,33 @@ def test_missing_token_env_raises(tmp_path):
             "  token_env: NOPE\n  scope_jql: project = A\n")
     with pytest.raises(ValueError, match="NOPE"):
         load_config(_write(tmp_path, text), env={})
+
+
+def test_token_not_in_repr(tmp_path):
+    """Verify that API tokens are excluded from repr to prevent leaks in
+    tracebacks, pytest --showlocals, or print() calls."""
+    secret_jira_token = "SUPERSECRET-JIRA-TOKEN-VALUE"
+    secret_ss_token = "SUPERSECRET-SS-TOKEN-VALUE"
+    env = {"JIRA_TOKEN": secret_jira_token, "SS_TOKEN": secret_ss_token}
+    cfg = load_config(_write(tmp_path, FULL), env=env)
+
+    # Verify tokens are NOT in repr of top-level AdapterConfig
+    cfg_repr = repr(cfg)
+    assert secret_jira_token not in cfg_repr
+    assert secret_ss_token not in cfg_repr
+
+    # Verify tokens are NOT in repr of individual config objects
+    jira_repr = repr(cfg.jira)
+    ss_repr = repr(cfg.smartsheet)
+    assert secret_jira_token not in jira_repr
+    assert secret_ss_token not in ss_repr
+
+    # Verify useful information IS still in repr (so repr is not empty/useless)
+    assert "base_url" in cfg_repr
+    assert "https://example.atlassian.net" in jira_repr
+    assert "https://api.smartsheetgov.com/2.0" in ss_repr
+
+    # Verify tokens are still accessible as attributes (repr suppression
+    # must not break access)
+    assert cfg.jira.token == secret_jira_token
+    assert cfg.smartsheet.token == secret_ss_token
