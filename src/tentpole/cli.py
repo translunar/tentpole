@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from tentpole.diagnostics import assemble, personal, to_json
+from tentpole.humansheets import exceptions_from_sheet, ghosts_from_sheet
 from tentpole.hygiene import load_rules
 from tentpole.model import load_bundle
+from tentpole.runreport import render_report
+from tentpole.schema import SCHEMAS, render_schemas
+from tentpole.snapshots import to_jsonl
+from tentpole.sync import run_sync
 
 _SECTION_ORDER = [
     "sprint_overload", "deadline_risk", "tentpole_runway",
@@ -54,7 +61,56 @@ def main(argv: list[str] | None = None) -> int:
                        help="hygiene rules YAML")
     check.add_argument("--json", action="store_true",
                        help="emit machine-readable diagnostics")
+
+    schema_cmd = sub.add_parser("schema", help="sheet schema utilities")
+    schema_sub = schema_cmd.add_subparsers(dest="schema_command",
+                                           required=True)
+    schema_sub.add_parser("show", help="print schemas for manual creation")
+
+    sync_cmd = sub.add_parser("sync", help="bundle + state -> change plans")
+    sync_cmd.add_argument("--bundle", required=True, type=Path)
+    sync_cmd.add_argument("--state", required=True, type=Path)
+    sync_cmd.add_argument("--out", required=True, type=Path)
+    sync_cmd.add_argument("--rules", type=Path, default=None)
+
     args = parser.parse_args(argv)
+
+    if args.command == "schema":
+        print(render_schemas())
+        return 0
+
+    if args.command == "sync":
+        bundle = load_bundle(args.bundle)
+        rules = load_rules(args.rules) if args.rules else None
+
+        def _state(name: str) -> dict:
+            path = args.state / f"{name}.json"
+            return json.loads(path.read_text()) if path.exists() else {}
+
+        future_work = _state("future_work")
+        if future_work:
+            bundle = replace(bundle, ghosts=ghosts_from_sheet(future_work))
+        exceptions = _state("exceptions")
+        if exceptions:
+            bundle = replace(bundle,
+                             exceptions=exceptions_from_sheet(exceptions))
+        current = {name: _state(name) for name, schema in SCHEMAS.items()
+                   if schema.owned == "machine"}
+        result = run_sync(bundle, rules, current)
+
+        plans_dir = args.out / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        for name, plan in result.plans.items():
+            (plans_dir / f"{name}.json").write_text(
+                json.dumps([asdict(c) for c in plan], indent=2))
+        (args.out / "report.json").write_text(
+            json.dumps(result.report, indent=2))
+        text = render_report(result.report)
+        (args.out / "report.txt").write_text(text + "\n")
+        with (args.state / "snapshots.jsonl").open("a") as fh:
+            fh.write(to_jsonl(result.snapshots))
+        print(text)
+        return 0
 
     bundle = load_bundle(args.bundle)
     rules = load_rules(args.rules) if args.rules else None
