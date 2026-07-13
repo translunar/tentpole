@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tentpole.buckets import Bucket
+from tentpole.buckets import (
+    Bucket, bucket_for_issue, effective_deadline, sprint_equivalents_until,
+)
 from tentpole.demand import DemandItem
 from tentpole.model import Bundle
 from tentpole.throughput import capacity_for, throughput_for
@@ -63,4 +65,73 @@ def team_subscription(bundle: Bundle, buckets: list[Bucket],
                 "team_subscription", "red", "team", bucket.id,
                 f"{bucket.id}: {total:.1f}d demand vs {cap:.1f}d team "
                 f"capacity{pct}"))
+    return findings
+
+
+def deadline_risk(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
+    findings = []
+    by_bucket_end = {bk.id: bk.end for bk in buckets}
+    for fv in bundle.fix_versions:
+        if fv.released:
+            continue
+        late, unscheduled = [], []
+        for issue in bundle.issues:
+            if (fv.name not in issue.fix_versions
+                    or issue.status_category == "done"
+                    or issue.issue_type == "Epic" or issue.external):
+                continue
+            bucket_id = bucket_for_issue(issue, bundle, buckets)
+            end = by_bucket_end.get(bucket_id)
+            if end is None:
+                unscheduled.append(issue.key)
+            elif fv.release_date and end > fv.release_date:
+                late.append(issue.key)
+        if late:
+            findings.append(Finding(
+                "deadline_risk", "red", fv.name, None,
+                f"{fv.name}: scheduled past the {fv.release_date} deadline: "
+                f"{', '.join(sorted(late))}"))
+        if unscheduled:
+            findings.append(Finding(
+                "deadline_risk", "red", fv.name, None,
+                f"{fv.name}: milestone work unscheduled: "
+                f"{', '.join(sorted(unscheduled))}"))
+    return findings
+
+
+def tentpole_runway(bundle: Bundle, buckets: list[Bucket],
+                    demand: list[DemandItem]) -> list[Finding]:
+    findings = []
+    ended = {bk.id: bk.end for bk in buckets}
+    for epic in bundle.issues:
+        if epic.issue_type != "Epic" or epic.status_category == "done":
+            continue
+        deadline = effective_deadline(epic, bundle)
+        if deadline is None:
+            continue
+        epic_items = [d for d in demand if d.epic_key == epic.key
+                      and d.kind in ("real", "ghost")]
+        remaining = sum(d.estimate_days for d in epic_items)
+        if remaining == 0:
+            continue
+        people = sorted({d.who for d in epic_items if d.who}) or list(
+            bundle.config.team)
+        runway = sprint_equivalents_until(
+            deadline, buckets, bundle.config.sprint_length_days)
+        total_slack = 0.0
+        for person in people:
+            cap = throughput_for(bundle, person) * runway
+            committed = sum(
+                d.estimate_days for d in demand
+                if d.who == person and d.epic_key != epic.key
+                and d.kind in ("real", "ghost")
+                and ended.get(d.bucket_id) is not None
+                and ended[d.bucket_id] <= deadline)
+            total_slack += max(0.0, cap - committed)
+        if remaining > total_slack:
+            findings.append(Finding(
+                "tentpole_runway", "red", epic.key, None,
+                f"{epic.key} ({epic.summary}): {remaining:.1f}d remaining but "
+                f"only {total_slack:.1f}d of capacity before {deadline} — "
+                f"~{remaining - total_slack:.0f}d short"))
     return findings
