@@ -2,6 +2,8 @@
 bundle inputs (spec section 7: the sync reads these, never writes them)."""
 from __future__ import annotations
 
+import re
+
 from tentpole.model import ExceptionRow, Ghost
 
 
@@ -27,6 +29,24 @@ def _number(cells: dict, name: str, *, sheet: str, row: str) -> float:
             f"got {value!r}") from None
 
 
+_TARGET_RE = re.compile(
+    r"^(sprint:\d+|plan\+[12]|fixversion:.+|unscheduled)$")
+
+
+def _target(cells: dict, *, row: str) -> str:
+    value = _text(cells, "Target")
+    if value is None:
+        return "unscheduled"
+    if not _TARGET_RE.match(value):
+        # Same fail-loud-but-actionable posture as _number: a silent
+        # bad Target both understates demand and escapes ghost_claims.
+        raise ValueError(
+            f"future_work row '{row}': column 'Target' must be one of "
+            f"'sprint:<id>', 'plan+1', 'plan+2', 'fixversion:<name>', "
+            f"'unscheduled', got {value!r}")
+    return value
+
+
 def ghosts_from_sheet(rows: dict[str, dict]) -> list[Ghost]:
     ghosts = []
     for cells in rows.values():
@@ -37,7 +57,7 @@ def ghosts_from_sheet(rows: dict[str, dict]) -> list[Ghost]:
             title=title,
             estimate_days=_number(cells, "Estimate Days",
                                   sheet="future_work", row=title),
-            target=_text(cells, "Target") or "unscheduled",
+            target=_target(cells, row=title),
             program=_text(cells, "Program"),
             owner=_text(cells, "Owner"),
             intended_epic=_text(cells, "Intended Epic"),

@@ -59,3 +59,30 @@ def test_ghosts_from_sheet_missing_estimate_days_still_zero():
     rows = {"Bare row": {"Title": "Bare row"}}
     ghosts = ghosts_from_sheet(rows)
     assert ghosts[0].estimate_days == 0.0
+
+
+def test_target_typo_raises_actionable_error():
+    for bad in ["sprint 1", "Sprint:1", "plan+3", "fixversion:", "soon"]:
+        rows = {"1": {"Title": "G", "Estimate Days": 3, "Target": bad}}
+        with pytest.raises(ValueError) as exc:
+            ghosts_from_sheet(rows)
+        msg = str(exc.value)
+        assert "Target" in msg and "G" in msg and repr(bad) in msg
+
+
+def test_valid_targets_accepted():
+    valid = ["sprint:3", "plan+1", "plan+2", "fixversion:R1", "unscheduled"]
+    for i, target in enumerate(valid):
+        rows = {"1": {"Title": f"G{i}", "Estimate Days": 1,
+                      "Target": target}}
+        assert ghosts_from_sheet(rows)[0].target == target
+
+
+def test_blank_target_still_defaults_unscheduled():
+    rows = {"1": {"Title": "G", "Estimate Days": 1, "Target": "  "}}
+    assert ghosts_from_sheet(rows)[0].target == "unscheduled"
+
+
+def test_missing_target_still_defaults_unscheduled():
+    rows = {"1": {"Title": "G", "Estimate Days": 1}}
+    assert ghosts_from_sheet(rows)[0].target == "unscheduled"
