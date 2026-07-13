@@ -7,7 +7,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from tentpole.adapters import jira_extract
+from tentpole.adapters import jira_extract, smartsheet_load
 from tentpole.adapters.config import load_config
 from tentpole.hygiene import load_rules
 
@@ -18,10 +18,16 @@ def add_parsers(sub) -> None:
     extract_cmd.add_argument("--out", required=True, type=Path)
     extract_cmd.add_argument("--rules", type=Path, default=None)
 
+    pull_cmd = sub.add_parser("pull", help="Smartsheet -> state dir")
+    pull_cmd.add_argument("--config", required=True, type=Path)
+    pull_cmd.add_argument("--state", required=True, type=Path)
+
 
 def dispatch(args) -> int | None:
     if args.command == "extract":
         return _extract(args)
+    if args.command == "pull":
+        return _pull(args)
     return None
 
 
@@ -45,4 +51,13 @@ def _extract(args) -> int:
         config=cfg.core or None,
     )
     print(f"bundle written to {args.out}")
+    return 0
+
+
+def _pull(args) -> int:
+    cfg = load_config(args.config)
+    if cfg.smartsheet is None:
+        raise SystemExit("config has no smartsheet: section")
+    pulled = smartsheet_load.pull_state(cfg.smartsheet, args.state)
+    print(f"pulled {len(pulled)} sheet(s): {', '.join(pulled)}")
     return 0
