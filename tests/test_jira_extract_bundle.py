@@ -193,3 +193,37 @@ def test_cli_extract_end_to_end(tmp_path, monkeypatch):
     # (keeps the test off the real clock).
     meta = json.loads((out_dir / "meta.json").read_text())
     date.fromisoformat(meta["as_of"])
+
+
+def test_cli_extract_threads_rules_to_hygiene(tmp_path, monkeypatch):
+    monkeypatch.setenv("JIRA_TOKEN", "tok")
+    config_path = tmp_path / "tentpole.yaml"
+    config_path.write_text(
+        "jira:\n"
+        "  base_url: https://example.atlassian.net\n"
+        "  email: a@b.c\n"
+        "  token_env: JIRA_TOKEN\n"
+        "  scope_jql: project = ABC\n")
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        "hygiene:\n"
+        "  - name: unanchored\n"
+        "    severity: red\n"
+        "    message: m\n"
+        "    jql: 'fixVersion is EMPTY'\n")
+    out_dir = tmp_path / "bundle"
+    routes = [
+        ("GET", "/rest/api/3/status", []),
+        # Matched by BOTH the scope search and the rule's hygiene
+        # search (routes are not consumed): zero issues keeps the
+        # fixture minimal while still proving the rule name flowed
+        # load_rules -> fetch_hygiene -> hygiene.json.
+        ("POST", "/rest/api/3/search/jql", {"issues": []}),
+    ]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+    exit_code = main(["extract", "--config", str(config_path),
+                      "--out", str(out_dir),
+                      "--rules", str(rules_path)])
+    assert exit_code == 0
+    bundle = load_bundle(out_dir)
+    assert bundle.hygiene_memberships == {"unanchored": []}

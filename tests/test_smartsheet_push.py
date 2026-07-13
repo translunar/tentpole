@@ -450,3 +450,22 @@ def test_preflight_validates_every_sheet_before_first_write(
     with pytest.raises(ValueError, match="Runway"):
         push_plans(cfg, plans, tmp_path / "state", http=fake_http)
     assert all(c["method"] == "GET" for c in fake_http.calls)
+
+
+def test_update_with_cells_and_reparent_rides_both_waves(fake_http):
+    fake_http.add("GET", "/sheets/111", COLS)
+    fake_http.add("PUT", "/sheets/111/rows",
+                  {"message": "SUCCESS", "result": []})
+    fake_http.add("PUT", "/sheets/111/rows",
+                  {"message": "SUCCESS", "result": []})
+    state = {"T-1": {"_row_id": 900, "_parent": "E-1"},
+             "E-2": {"_row_id": 800, "_parent": None}}
+    changes = [{"op": "update", "key": "T-1",
+                "cells": {"Summary": "new"}, "parent_key": "E-2"}]
+    result = push_plan(CFG, 111, changes, state, ISSUES_SCHEMA,
+                       http=fake_http)
+    assert fake_http.calls[1]["body"] == [
+        {"id": 900, "cells": [{"columnId": 11, "value": "new"}]}]
+    assert fake_http.calls[2]["body"] == [{"id": 900, "parentId": 800}]
+    assert result["updated"] == 1          # counted once, not twice
+    assert result["failed"] == []
