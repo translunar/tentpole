@@ -22,12 +22,20 @@ def add_parsers(sub) -> None:
     pull_cmd.add_argument("--config", required=True, type=Path)
     pull_cmd.add_argument("--state", required=True, type=Path)
 
+    push_cmd = sub.add_parser(
+        "push", help="apply change plans to Smartsheet")
+    push_cmd.add_argument("--config", required=True, type=Path)
+    push_cmd.add_argument("--plans", required=True, type=Path)
+    push_cmd.add_argument("--state", required=True, type=Path)
+
 
 def dispatch(args) -> int | None:
     if args.command == "extract":
         return _extract(args)
     if args.command == "pull":
         return _pull(args)
+    if args.command == "push":
+        return _push(args)
     return None
 
 
@@ -61,3 +69,24 @@ def _pull(args) -> int:
     pulled = smartsheet_load.pull_state(cfg.smartsheet, args.state)
     print(f"pulled {len(pulled)} sheet(s): {', '.join(pulled)}")
     return 0
+
+
+def _push(args) -> int:
+    cfg = load_config(args.config)
+    if cfg.smartsheet is None:
+        raise SystemExit("config has no smartsheet: section")
+    report = smartsheet_load.push_plans(cfg.smartsheet, args.plans,
+                                        args.state)
+    failed = 0
+    for name in sorted(report):
+        r = report[name]
+        line = (f"{name}: +{r['added']} ~{r['updated']} "
+                f"-{r['removed']}")
+        if r["failed"]:
+            line += f"  FAILED {len(r['failed'])}"
+        print(line)
+        for f in r["failed"]:
+            print(f"  {f['op']} {f['key']}: {f['error']}")
+        failed += len(r["failed"])
+    # Spec section 8: a silently failing sync must be impossible.
+    return 1 if failed else 0
