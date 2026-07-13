@@ -46,16 +46,29 @@ def assemble(bundle: Bundle, rules: list[Rule] | None = None) -> dict:
 
 
 def personal(diag: dict, bundle: Bundle, person: str) -> dict:
+    my_demand = [d for d in diag["demand"] if d.who == person]
+    my_fix_versions = {fv for d in my_demand for fv in d.fix_versions}
+    my_epics = {d.epic_key for d in my_demand if d.epic_key}
+
+    def _mine(f) -> bool:
+        if f.subject == person:
+            return True
+        if f.check == "deadline_risk":
+            return f.subject in my_fix_versions
+        if f.check == "tentpole_runway":
+            return f.subject in my_epics
+        return False
+
     def _owner(key: str) -> str | None:
         issue = bundle.issue(key)
         return issue.assignee if issue else None
 
     return {
         "as_of": diag["as_of"],
-        "findings": [f for f in diag["findings"] if f.subject == person],
+        "findings": [f for f in diag["findings"] if _mine(f)],
         "hygiene": [fl for fl in diag["hygiene"] if _owner(fl.key) == person],
         "capacity": [r for r in diag["capacity"] if r["person"] == person],
-        "demand": [d for d in diag["demand"] if d.who == person],
+        "demand": my_demand,
     }
 
 
