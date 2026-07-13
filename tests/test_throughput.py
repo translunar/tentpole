@@ -38,6 +38,14 @@ def test_empirical_needs_min_sprints(make_bundle, make_sprints):
     assert empirical(b_short, "ada") is None            # only 2 past sprints
 
 
+def test_empirical_returns_none_with_no_past_sprints_and_zero_minimum(make_bundle):
+    # min_sprints_for_empirical <= 0 means len(past) >= threshold is always
+    # true, so with no past sprints per_sprint is empty -- must not crash.
+    b = make_bundle(config=Config(min_sprints_for_empirical=0,
+                                  team=["ada", "grace"]))
+    assert empirical(b, "ada") is None
+
+
 def test_throughput_falls_back_to_prior(make_bundle):
     b = make_bundle()  # no past sprints at all
     assert throughput_for(b, "ada") == prior(b.config)

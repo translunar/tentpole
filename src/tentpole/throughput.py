@@ -29,6 +29,8 @@ def empirical(bundle: Bundle, person: str) -> float | None:
             and not is_overhead(issue, bundle.config)
         )
         per_sprint.append(total)
+    if not per_sprint:
+        return None
     return sum(per_sprint) / len(per_sprint)
 
 
