@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from tentpole.adapters import jira_extract, smartsheet_load
+from tentpole.adapters import jira_extract, jira_write, smartsheet_load
 from tentpole.adapters.config import load_config
 from tentpole.fixes import propose
 from tentpole.hygiene import load_rules
@@ -39,6 +39,10 @@ def add_parsers(sub) -> None:
     prop.add_argument("--rules", required=True, type=Path)
     prop.add_argument("--out", type=Path, default=None)
     prop.add_argument("--json", action="store_true")
+    ap = fix_sub.add_parser("apply",
+                            help="review and apply fix proposals")
+    ap.add_argument("--config", required=True, type=Path)
+    ap.add_argument("--proposals", required=True, type=Path)
 
 
 def dispatch(args) -> int | None:
@@ -50,6 +54,8 @@ def dispatch(args) -> int | None:
         return _push(args)
     if args.command == "fix" and args.fix_command == "propose":
         return _fix_propose(args)
+    if args.command == "fix" and args.fix_command == "apply":
+        return _fix_apply(args)
     return None
 
 
@@ -121,4 +127,36 @@ def _fix_propose(args) -> int:
         for p in proposals:
             print(f"[{p.confidence}] {p.issue}: {p.action} -> "
                   f"{p.value}  ({p.rationale}; rule {p.rule})")
+    return 0
+
+
+def _fix_apply(args) -> int:
+    cfg = load_config(args.config)
+    if cfg.jira is None:
+        raise SystemExit("config has no jira: section")
+    proposals = json.loads(Path(args.proposals).read_text())
+    applied = skipped = 0
+    accept_mechanical = False
+    for p in proposals:
+        line = (f"{p['issue']}: {p['action']} -> {p['value']} "
+                f"[{p['confidence']}] ({p['rationale']})")
+        if accept_mechanical and p["confidence"] == "mechanical":
+            answer = "y"
+        else:
+            answer = input(f"{line}  apply? [y/n/all/q] ").strip().lower()
+        if answer == "q":
+            break
+        if answer == "all":
+            # Spec section 5: batch accept covers mechanical fixes
+            # only; suggested proposals still prompt one by one.
+            accept_mechanical = True
+            answer = "y" if p["confidence"] == "mechanical" else input(
+                f"{line}  apply this one? [y/n] ").strip().lower()
+        if answer != "y":
+            skipped += 1
+            continue
+        jira_write.apply_action(cfg.jira, p["action"], p["issue"],
+                                p["value"])
+        applied += 1
+    print(f"applied {applied}, skipped {skipped}")
     return 0
