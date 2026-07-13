@@ -57,7 +57,30 @@ pip install tentpole
    hand (supported path), or try the experimental `tentpole bootstrap
    --config tentpole.yaml`.
 
-3. Run the loop (daily or on demand):
+3. Write `rules/hygiene.yaml` (required for `tentpole fix propose`;
+   optional for `tentpole extract` and `tentpole sync`):
+
+   ```yaml
+   # Team hygiene rules (spec section 5). `jql` is evaluated by Jira at extract
+   # time; the extract adapter stores matching keys under the rule's name in the
+   # bundle's hygiene.json. `derived` names a built-in check from
+   # tentpole.hygiene.DERIVED_CHECKS; when both are present they AND together.
+   # `fix` names a proposal strategy from tentpole.fixes.STRATEGIES.
+   hygiene:
+     - name: unanchored-work
+       severity: red
+       jql: "fixVersion is EMPTY"
+       derived: inherits_no_fixversion
+       message: "No milestone attached (directly or via epic)"
+       fix: inherit_epic_fixversion
+     - name: orphan-task
+       severity: yellow
+       jql: 'issuetype != Bug AND parent is EMPTY'
+       message: "Task belongs to no epic"
+       fix: suggest_epic_from_siblings
+   ```
+
+4. Run the loop (daily or on demand):
 
    ```sh
    tentpole extract --config tentpole.yaml --out bundle/ --rules rules/hygiene.yaml
@@ -66,13 +89,13 @@ pip install tentpole
    tentpole push    --config tentpole.yaml --plans out/plans --state state/
    ```
 
-4. Personal planning check, any time:
+5. Personal planning check, any time:
 
    ```sh
    tentpole check --bundle bundle/ --me ada
    ```
 
-5. Hygiene fixes (human-reviewed; the only path that writes to Jira):
+6. Hygiene fixes (human-reviewed; the only path that writes to Jira):
 
    ```sh
    tentpole fix propose --bundle bundle/ --rules rules/hygiene.yaml --out proposals.json
