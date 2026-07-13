@@ -12,11 +12,19 @@ def _text(cells: dict, name: str) -> str | None:
     return str(value).strip()
 
 
-def _number(cells: dict, name: str) -> float:
+def _number(cells: dict, name: str, *, sheet: str, row: str) -> float:
     value = cells.get(name)
     if value is None or str(value).strip() == "":
         return 0.0
-    return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        # Fail loudly but actionably: a human mistyped a hand-edited cell.
+        # Do NOT coerce to 0.0 here -- that would silently understate
+        # demand, the exact failure class this tool exists to prevent.
+        raise ValueError(
+            f"{sheet} row '{row}': column '{name}' must be a number, "
+            f"got {value!r}") from None
 
 
 def ghosts_from_sheet(rows: dict[str, dict]) -> list[Ghost]:
@@ -27,7 +35,8 @@ def ghosts_from_sheet(rows: dict[str, dict]) -> list[Ghost]:
             continue
         ghosts.append(Ghost(
             title=title,
-            estimate_days=_number(cells, "Estimate Days"),
+            estimate_days=_number(cells, "Estimate Days",
+                                  sheet="future_work", row=title),
             target=_text(cells, "Target") or "unscheduled",
             program=_text(cells, "Program"),
             owner=_text(cells, "Owner"),
@@ -45,7 +54,9 @@ def exceptions_from_sheet(rows: dict[str, dict]) -> list[ExceptionRow]:
             continue
         out.append(ExceptionRow(
             person=person,
-            sprint_id=int(_number(cells, "Sprint")),
-            day_cost=_number(cells, "Day Cost"),
+            sprint_id=int(_number(cells, "Sprint",
+                                  sheet="exceptions", row=person)),
+            day_cost=_number(cells, "Day Cost",
+                             sheet="exceptions", row=person),
         ))
     return out

@@ -23,6 +23,10 @@ def plan_changes(spec: SheetSpec, current: dict[str, dict],
         raise ValueError(
             f"refusing to plan changes for human-owned sheet "
             f"'{schema.name}'")
+    if spec.sheet != schema.name:
+        raise ValueError(
+            f"spec sheet '{spec.sheet}' does not match schema "
+            f"'{schema.name}'")
     synced = set(schema.synced_names())
     changes: list[Change] = []
     spec_keys = set()

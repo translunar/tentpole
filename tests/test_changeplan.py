@@ -58,6 +58,11 @@ def test_refuses_human_owned_sheets():
                      SCHEMAS["future_work"])
 
 
+def test_refuses_mismatched_spec_and_schema():
+    with pytest.raises(ValueError, match="epics.*issues|issues.*epics"):
+        plan_changes(SheetSpec("epics", []), {}, SCHEMAS["issues"])
+
+
 def test_update_ignores_unsynced_columns():
     spec = _spec(_row("T-1", Summary="same"))
     # a human somehow added a note under an unknown column in state:

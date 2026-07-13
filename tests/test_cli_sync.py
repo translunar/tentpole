@@ -59,3 +59,35 @@ def test_sync_appends_snapshots_and_reads_human_sheets(dirs):
     assert len(lines) == 2                      # appended, not overwritten
     report = json.loads((out / "report.json").read_text())
     assert report["changes"]["capacity"]  # plan present (state never applied)
+
+
+def test_sync_creates_missing_state_dir(dirs):
+    # FIX 1: --state need not already exist (first run on a clean checkout).
+    bundle, state, out = dirs
+    missing_state = state / "nested" / "state"
+    assert not missing_state.exists()
+    rc = main(["sync", "--bundle", str(bundle), "--state",
+               str(missing_state), "--out", str(out)])
+    assert rc == 0
+    assert (missing_state / "snapshots.jsonl").exists()
+
+
+def test_sync_emptied_exceptions_sheet_drops_stale_bundle_exception(dirs):
+    # FIX 2: an emptied human sheet ({}) must REPLACE bundle data, not be
+    # treated the same as an absent state file (which leaves bundle data
+    # alone). Here the bundle carries a stale exception that, if kept,
+    # reduces ada's sprint capacity enough to trigger a spurious red
+    # sprint_overload finding.
+    bundle, state, out = dirs
+    (bundle / "exceptions.json").write_text(json.dumps([
+        {"person": "ada", "sprint_id": 1, "day_cost": 3.0}]))
+    issues = json.loads((bundle / "issues.json").read_text())
+    issues[0]["remaining_estimate_days"] = 6.0
+    (bundle / "issues.json").write_text(json.dumps(issues))
+    (state / "exceptions.json").write_text("{}")
+
+    rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
+               "--out", str(out)])
+    assert rc == 0
+    report = json.loads((out / "report.json").read_text())
+    assert "sprint_overload" not in report["findings"]

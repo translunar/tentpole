@@ -83,18 +83,24 @@ def main(argv: list[str] | None = None) -> int:
         bundle = load_bundle(args.bundle)
         rules = load_rules(args.rules) if args.rules else None
 
-        def _state(name: str) -> dict:
+        def _state(name: str) -> dict | None:
+            # None = state file absent (leave bundle data untouched);
+            # {} = state file present but empty (an authoritative "there
+            # is nothing here", e.g. a human deleted the last row).
             path = args.state / f"{name}.json"
-            return json.loads(path.read_text()) if path.exists() else {}
+            return json.loads(path.read_text()) if path.exists() else None
 
         future_work = _state("future_work")
-        if future_work:
+        if future_work is not None:
             bundle = replace(bundle, ghosts=ghosts_from_sheet(future_work))
         exceptions = _state("exceptions")
-        if exceptions:
+        if exceptions is not None:
             bundle = replace(bundle,
                              exceptions=exceptions_from_sheet(exceptions))
-        current = {name: _state(name) for name, schema in SCHEMAS.items()
+        # run_sync expects a dict (never None) per machine sheet, even
+        # when its state file is absent.
+        current = {name: _state(name) or {}
+                   for name, schema in SCHEMAS.items()
                    if schema.owned == "machine"}
         result = run_sync(bundle, rules, current)
 
@@ -107,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(result.report, indent=2))
         text = render_report(result.report)
         (args.out / "report.txt").write_text(text + "\n")
+        args.state.mkdir(parents=True, exist_ok=True)
         with (args.state / "snapshots.jsonl").open("a") as fh:
             fh.write(to_jsonl(result.snapshots))
         print(text)
