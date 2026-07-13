@@ -1,8 +1,11 @@
+import json
+import urllib.request
 from datetime import date
 
 from tentpole.adapters.config import JiraConfig
 from tentpole.adapters.jira_extract import (fetch_hygiene, fetch_sprints,
                                             fetch_versions, write_bundle)
+from tentpole.cli import main
 from tentpole.hygiene import Rule
 from tentpole.model import load_bundle
 
@@ -86,3 +89,100 @@ def test_write_bundle_round_trips_through_load_bundle(tmp_path):
     assert bundle.fix_versions[0].name == "R1"
     assert bundle.hygiene_memberships == {"unanchored": ["A-1"]}
     assert bundle.config.team == ["ada"]
+
+
+class _FakeUrlopenResponse:
+    """Mimics the object urllib.request.urlopen(...) hands back to
+    urllib_transport: a context manager with .status/.headers/.read()."""
+
+    def __init__(self, status, payload):
+        self.status = status
+        self.headers = {}
+        self._body = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def _fake_urlopen(routes):
+    # routes: list of (method, path_substring, json_payload), consumed by
+    # matching against the real urllib.request.Request the adapter built.
+    def _urlopen(req, *args, **kwargs):
+        method = req.get_method()
+        url = req.full_url
+        for want_method, want_path, payload in routes:
+            if want_method == method and want_path in url:
+                return _FakeUrlopenResponse(200, payload)
+        raise AssertionError(f"unexpected request: {method} {url}")
+    return _urlopen
+
+
+def test_cli_extract_end_to_end(tmp_path, monkeypatch):
+    # Drives the real `tentpole extract ...` entry point (argparse ->
+    # adapters/cli.dispatch -> _extract -> jira_extract -> write_bundle)
+    # so a wiring bug -- a typo'd args.<attr>, a swapped positional in
+    # write_bundle(...), a mis-routed dispatch -- fails this test instead
+    # of surfacing only on the user's first real invocation. No network:
+    # the fake sits at urllib.request.urlopen, the one seam that is a
+    # live attribute lookup rather than a bound default, so no
+    # production code changes were needed to inject it.
+    monkeypatch.setenv("JIRA_TOKEN", "secret-token")
+    config_path = tmp_path / "tentpole.yaml"
+    config_path.write_text(
+        "jira:\n"
+        "  base_url: https://example.atlassian.net\n"
+        "  email: a@b.c\n"
+        "  token_env: JIRA_TOKEN\n"
+        "  scope_jql: project = ABC\n"
+        "core:\n"
+        "  team: [ada]\n"
+    )
+    out_dir = tmp_path / "bundle"
+
+    routes = [
+        ("GET", "/rest/api/3/status", [
+            {"name": "To Do", "statusCategory": {"key": "new"}},
+            {"name": "Done", "statusCategory": {"key": "done"}},
+        ]),
+        ("POST", "/rest/api/3/search/jql", {"issues": [{
+            "key": "ABC-1",
+            "fields": {
+                "summary": "Do the thing",
+                "issuetype": {"name": "Task"},
+                "status": {"name": "To Do",
+                          "statusCategory": {"key": "new"}},
+                "assignee": None,
+                "timetracking": {},
+                "parent": None,
+                "fixVersions": [],
+                "labels": [],
+                "issuelinks": [],
+                "customfield_10020": None,
+            },
+            "changelog": {"histories": []},
+        }]}),
+    ]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+
+    exit_code = main(["extract", "--config", str(config_path),
+                      "--out", str(out_dir)])
+
+    assert exit_code == 0
+    bundle = load_bundle(out_dir)
+    assert [i.key for i in bundle.issues] == ["ABC-1"]
+    assert bundle.issues[0].status_category == "todo"
+    assert bundle.sprints == []
+    assert bundle.fix_versions == []
+    assert bundle.hygiene_memberships == {}
+    assert bundle.config.team == ["ada"]
+    # date.today() is stamped by the adapter edge; assert the bundle
+    # carries a well-formed date rather than pinning a literal value
+    # (keeps the test off the real clock).
+    meta = json.loads((out_dir / "meta.json").read_text())
+    date.fromisoformat(meta["as_of"])
