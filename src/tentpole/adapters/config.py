@@ -10,11 +10,39 @@ from pathlib import Path
 import yaml
 
 
+class Secret:
+    """A credential that cannot leak through repr(), str(), f-strings,
+    dataclasses.asdict(), or json.dumps() (dumps raises TypeError --
+    fail closed). Call .reveal() at the moment of use, i.e. when
+    building an Authorization header."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str):
+        self._value = value
+
+    def reveal(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "Secret('***')"
+
+    __str__ = __repr__
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Secret):
+            return self._value == other._value
+        return self._value == other
+
+    def __hash__(self) -> int:
+        return hash(self._value)
+
+
 @dataclass(frozen=True)
 class JiraConfig:
     base_url: str
     email: str
-    token: str = field(repr=False)
+    token: Secret | str = field(repr=False)
     scope_jql: str
     projects: tuple[str, ...] = ()
     board_id: int | None = None
@@ -22,13 +50,21 @@ class JiraConfig:
     hours_per_day: float = 8.0
     programs_file: str | None = None
 
+    def __post_init__(self):
+        if not isinstance(self.token, Secret):
+            object.__setattr__(self, "token", Secret(self.token))
+
 
 @dataclass(frozen=True)
 class SmartsheetConfig:
     base_url: str
-    token: str = field(repr=False)
+    token: Secret | str = field(repr=False)
     sheets: dict[str, int] = field(default_factory=dict)
     workspace_id: int | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.token, Secret):
+            object.__setattr__(self, "token", Secret(self.token))
 
 
 @dataclass(frozen=True)

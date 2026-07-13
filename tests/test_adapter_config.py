@@ -1,8 +1,12 @@
+import base64
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
-from tentpole.adapters.config import load_config
+from tentpole.adapters.config import (JiraConfig, SmartsheetConfig,
+                                      load_config)
 
 FULL = """
 jira:
@@ -93,3 +97,34 @@ def test_token_not_in_repr(tmp_path):
     # must not break access)
     assert cfg.jira.token == secret_jira_token
     assert cfg.smartsheet.token == secret_ss_token
+
+
+def test_token_cannot_leak(tmp_path):
+    env = {"JIRA_TOKEN": "jt-hunter2", "SS_TOKEN": "st-hunter2"}
+    cfg = load_config(_write(tmp_path, FULL), env=env)
+    for section in (cfg.jira, cfg.smartsheet):
+        assert "hunter2" not in repr(section)
+        assert "hunter2" not in str(section)
+        assert "hunter2" not in str(asdict(section))
+        with pytest.raises(TypeError):
+            json.dumps(asdict(section))     # fail closed, never leak
+
+
+def test_token_equality_and_reveal(tmp_path):
+    env = {"JIRA_TOKEN": "jt", "SS_TOKEN": "st"}
+    cfg = load_config(_write(tmp_path, FULL), env=env)
+    assert cfg.jira.token == "jt"           # str comparison still works
+    assert cfg.jira.token.reveal() == "jt"
+    assert str(cfg.jira.token) == "Secret('***')"
+    assert f"{cfg.jira.token}" == "Secret('***')"
+
+
+def test_headers_reveal_real_token():
+    from tentpole.adapters.jira_extract import _headers as jira_headers
+    from tentpole.adapters.smartsheet_load import _headers as ss_headers
+    j = JiraConfig(base_url="https://x.net", email="a@b.c", token="tok",
+                   scope_jql="q")
+    expected = base64.b64encode(b"a@b.c:tok").decode()
+    assert jira_headers(j) == {"Authorization": f"Basic {expected}"}
+    s = SmartsheetConfig(base_url="https://x/2.0", token="tok")
+    assert ss_headers(s) == {"Authorization": "Bearer tok"}

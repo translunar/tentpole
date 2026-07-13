@@ -34,7 +34,8 @@ def _status_category(key: str) -> str:
 
 
 def _headers(cfg: JiraConfig) -> dict:
-    cred = base64.b64encode(f"{cfg.email}:{cfg.token}".encode()).decode()
+    cred = base64.b64encode(
+        f"{cfg.email}:{cfg.token.reveal()}".encode()).decode()
     return {"Authorization": f"Basic {cred}"}
 
 

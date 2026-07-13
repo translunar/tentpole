@@ -14,7 +14,7 @@ from tentpole.schema import SCHEMAS, SheetSchema
 
 
 def _headers(cfg: SmartsheetConfig) -> dict:
-    return {"Authorization": f"Bearer {cfg.token}"}
+    return {"Authorization": f"Bearer {cfg.token.reveal()}"}
 
 
 def _call(cfg, method, path, *, params=None, body=None, http=request):
