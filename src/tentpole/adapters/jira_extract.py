@@ -153,10 +153,17 @@ def fetch_issues(cfg, categories, programs, http=request) -> list[dict]:
         external = [parse_issue(r, cfg, categories, programs,
                                 external=True)
                     for r in _search_pages(cfg, jql, fields, http=http)]
-    except HttpError:
-        # No read access to (some of) the linked projects: keep the
-        # dependency edges visible with status-unknown stubs rather
-        # than failing the whole extract (spec section 2: cross-team
-        # read access is an open question).
+    except HttpError as err:
+        if err.status not in (403, 404):
+            # Anything other than "not visible" (403) or "not found"
+            # (404) is a real infrastructure failure -- an expired
+            # token (401), an exhausted-retries 5xx, etc. Silently
+            # stubbing those would hide a broken sync, so let it
+            # propagate and fail the extract loudly.
+            raise
+        # No read access to (some of) the linked projects, or they no
+        # longer exist: keep the dependency edges visible with
+        # status-unknown stubs rather than failing the whole extract
+        # (spec section 2: cross-team read access is an open question).
         external = [_stub_external(k) for k in linked]
     return issues + external

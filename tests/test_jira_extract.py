@@ -1,3 +1,5 @@
+import pytest
+
 from tentpole.adapters.config import JiraConfig
 from tentpole.adapters.http import HttpError
 from tentpole.adapters.jira_extract import (fetch_issues,
@@ -122,6 +124,35 @@ def test_external_linked_issues_stubbed_on_http_error(fake_http):
     assert [i["key"] for i in ext] == ["Z-1"]
     assert ext[0]["status_category"] == "todo"
     assert "key in (Z-1)" == fake_http.calls[1]["body"]["jql"]
+
+
+def test_external_linked_issues_propagate_on_server_error(fake_http):
+    """Mandatory fix: only 403/404 on the linked-issue fetch may become a
+    status-unknown stub. A 500 that already exhausted its retries is a
+    real infrastructure failure -- silently reinterpreting it as "no
+    read access" would make a broken sync look benign, violating the
+    project's "a silently failing sync must be impossible" constraint.
+    """
+    linked = _raw("A-9", issuelinks=[
+        {"type": {"name": "Blocks"}, "outwardIssue": {"key": "Z-2"}}])
+    fake_http.add("POST", "/rest/api/3/search/jql", {"issues": [linked]})
+    fake_http.add("POST", "/rest/api/3/search/jql",
+                  HttpError(500, "https://x.net", "internal error"))
+    with pytest.raises(HttpError):
+        fetch_issues(CFG, CATS, {}, http=fake_http)
+
+
+def test_external_linked_issues_propagate_on_auth_error(fake_http):
+    """Same as above but for 401: an expired/invalid token must fail the
+    extract loudly, not be reinterpreted as a benign access-denied stub.
+    """
+    linked = _raw("A-10", issuelinks=[
+        {"type": {"name": "Blocks"}, "outwardIssue": {"key": "Z-3"}}])
+    fake_http.add("POST", "/rest/api/3/search/jql", {"issues": [linked]})
+    fake_http.add("POST", "/rest/api/3/search/jql",
+                  HttpError(401, "https://x.net", "unauthorized"))
+    with pytest.raises(HttpError):
+        fetch_issues(CFG, CATS, {}, http=fake_http)
 
 
 def test_zero_seconds_remaining_yields_zero_days_not_none():
