@@ -62,6 +62,8 @@ Partially scoped epics work across the boundary: an epic's demand = its real tic
 3. **Tent-pole runway:** for epics with future-bucket deadlines, remaining demand vs. capacity its people have left across intervening buckets after milestone-bound work is served — "finishes 12 days late in plan N+2 at current pace."
 4. **Team subscription:** per bucket — total demand (incl. ghosts and TBD) vs. team capacity; program balance.
 
+**Hygiene rules:** a small declarative config (rules as data, per-team tunable) evaluated by the core every run. Each rule = name, severity (red/yellow), a one-line predicate over raw *and derived* issue fields (e.g. `effective_fixversion == null` where effective means own-or-inherited-from-epic; `issue_type != "Bug" and epic == null`), and a message. The rule language is deliberately tiny — field, comparison, and/or; anything richer becomes core code or an agent judgment. Flags render as an Issues-mirror column (conditional formatting), a `plan check` section, and conversation starters for the parked planning-assistant agent.
+
 ## 6. Estimation learning
 
 - **Snapshots:** every run appends per-issue records (date, status, sprint, assignee, original/remaining estimate) to the sync's own data store (files persisted by the load adapter — not Smartsheet). This is the longitudinal substrate; Jira retains no estimate time-series, and rolling never-closed tickets are reconstructed from snapshots ("which sprint was it in at each run").
