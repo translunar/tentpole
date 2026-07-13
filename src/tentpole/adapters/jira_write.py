@@ -5,6 +5,8 @@ entire surface -- no transition or delete code path exists. Writes run
 as, and are attributed to, the invoking human's token."""
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from tentpole.adapters.config import JiraConfig
 from tentpole.adapters.http import request
 from tentpole.adapters.jira_extract import _headers
@@ -16,16 +18,20 @@ def _call(cfg, method, path, *, body, http=request):
     return http(method, cfg.base_url + path, _headers(cfg), body=body)
 
 
+def _issue_path(key: str) -> str:
+    return f"/rest/api/3/issue/{quote(key, safe='')}"
+
+
 def set_fix_version(cfg: JiraConfig, key: str, version: str,
                     http=request) -> None:
-    _call(cfg, "PUT", f"/rest/api/3/issue/{key}",
+    _call(cfg, "PUT", _issue_path(key),
           body={"update": {"fixVersions": [{"add": {"name": version}}]}},
           http=http)
 
 
 def set_parent(cfg: JiraConfig, key: str, parent_key: str,
                http=request) -> None:
-    _call(cfg, "PUT", f"/rest/api/3/issue/{key}",
+    _call(cfg, "PUT", _issue_path(key),
           body={"fields": {"parent": {"key": parent_key}}}, http=http)
 
 

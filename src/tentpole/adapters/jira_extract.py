@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 from tentpole.adapters.config import JiraConfig
 from tentpole.adapters.http import HttpError, request
@@ -211,7 +212,8 @@ def fetch_versions(cfg, http=request) -> list[dict]:
     out = []
     for project in cfg.projects:
         for v in _call(cfg, "GET",
-                       f"/rest/api/3/project/{project}/versions",
+                       f"/rest/api/3/project/{quote(project, safe='')}"
+                       f"/versions",
                        http=http):
             out.append({"name": v["name"],
                         "release_date": v.get("releaseDate"),

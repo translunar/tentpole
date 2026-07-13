@@ -56,6 +56,13 @@ def test_fetch_versions_across_projects(fake_http):
         {"name": "R0", "release_date": None, "released": True}]
 
 
+def test_fetch_versions_escapes_project_key(fake_http):
+    cfg = JiraConfig(base_url="https://x.net", email="a@b.c", token="t",
+                     scope_jql="q", projects=("AB C",))
+    fake_http.add("GET", "/rest/api/3/project/AB%20C/versions", [])
+    assert fetch_versions(cfg, http=fake_http) == []
+
+
 def test_fetch_hygiene_scopes_rule_jql(fake_http):
     rules = [
         Rule(name="unanchored", severity="red", message="m",

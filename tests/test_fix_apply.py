@@ -93,3 +93,9 @@ def test_fix_apply_all_batches_mechanical_only(tmp_path, monkeypatch,
     assert code == 0
     assert applied == ["T-1", "T-2"]
     assert "applied 2, skipped 1" in capsys.readouterr().out
+
+
+def test_issue_key_is_url_escaped(fake_http):
+    fake_http.add("PUT", "/rest/api/3/issue/A%20B%2F1", {})
+    set_parent(CFG, "A B/1", "E-2", http=fake_http)
+    assert "/rest/api/3/issue/A%20B%2F1" in fake_http.calls[0]["url"]
