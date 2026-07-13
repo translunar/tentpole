@@ -128,3 +128,76 @@ def fixversions_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
             "Risk": "AT RISK" if fv.name in at_risk else "",
         }))
     return SheetSpec("fixversions", rows)
+
+
+def dependencies_sheet(bundle: Bundle) -> SheetSpec:
+    internal = {i.key for i in bundle.issues if not i.external}
+    rows = []
+    for issue in sorted(bundle.issues, key=lambda i: i.key):
+        if issue.external:
+            continue
+        for link in issue.links:
+            if link.type != "Blocks" or link.other_key in internal:
+                continue
+            other = bundle.issue(link.other_key)
+            inward = link.direction == "inward"
+            key = (f"{issue.key}<-{link.other_key}" if inward
+                   else f"{issue.key}->{link.other_key}")
+            rows.append(Row(key, {
+                "Edge": key,
+                "Our Issue": issue.key,
+                "Direction": "blocked by" if inward else "blocks",
+                "Their Issue": link.other_key,
+                "Their Status": other.status_category if other else "unknown",
+                "Their Sprint": (str(other.sprint_id)
+                                 if other and other.sprint_id else None),
+            }))
+    return SheetSpec("dependencies", rows)
+
+
+def capacity_sheet(diag: dict) -> SheetSpec:
+    rows = []
+    for r in diag["capacity"]:
+        key = f"{r['person']}|{r['bucket_id']}"
+        rows.append(Row(key, {
+            "Cell": key,
+            "Person": r["person"],
+            "Bucket": r["bucket_id"],
+            "Load": r["load"],
+            "Capacity": r["capacity"],
+            "Overloaded": r["load"] > r["capacity"],
+        }))
+    return SheetSpec("capacity", rows)
+
+
+def accuracy_sheet(bundle: Bundle) -> SheetSpec:
+    rows = []
+    for issue in sorted(bundle.issues, key=lambda i: i.key):
+        if (issue.external or issue.issue_type == "Epic"
+                or issue.status_category != "done"
+                or is_overhead(issue, bundle.config)
+                or not issue.original_estimate_days
+                or not issue.first_in_progress or not issue.done_at):
+            continue
+        cycle = (issue.done_at - issue.first_in_progress).days + 1
+        rows.append(Row(issue.key, {
+            "Key": issue.key,
+            "Assignee": issue.assignee,
+            "Program": issue.program,
+            "Original Est": issue.original_estimate_days,
+            "Cycle Days": cycle,
+            "Ratio": round(cycle / issue.original_estimate_days, 2),
+            "Done": _iso(issue.done_at),
+        }))
+    return SheetSpec("accuracy", rows)
+
+
+def build_sheetspecs(bundle: Bundle, diag: dict) -> dict[str, SheetSpec]:
+    return {
+        "issues": issues_sheet(bundle, diag),
+        "epics": epics_sheet(bundle, diag),
+        "fixversions": fixversions_sheet(bundle, diag),
+        "dependencies": dependencies_sheet(bundle),
+        "capacity": capacity_sheet(diag),
+        "accuracy": accuracy_sheet(bundle),
+    }
