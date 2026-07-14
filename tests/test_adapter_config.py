@@ -12,7 +12,7 @@ FULL = """
 jira:
   base_url: https://example.atlassian.net/
   email: juno@example.com
-  token_env: JIRA_TOKEN
+  token_env_var: JIRA_TOKEN
   scope_jql: project = ABC
   projects: [ABC, XYZ]
   board_id: 42
@@ -20,7 +20,7 @@ core:
   team: [ada, grace]
 smartsheet:
   base_url: https://api.smartsheetgov.com/2.0
-  token_env: SS_TOKEN
+  token_env_var: SS_TOKEN
   sheets:
     issues: 111
     epics: 222
@@ -46,7 +46,7 @@ def test_loads_both_sections_and_core(tmp_path):
 
 def test_defaults(tmp_path):
     text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
-            "  token_env: T\n  scope_jql: project = A\n")
+            "  token_env_var: T\n  scope_jql: project = A\n")
     cfg = load_config(_write(tmp_path, text), env={"T": "tok"})
     assert cfg.jira.sprint_field == "customfield_10020"
     assert cfg.jira.hours_per_day == 8.0
@@ -56,7 +56,7 @@ def test_defaults(tmp_path):
 
 
 def test_smartsheet_default_base_url(tmp_path):
-    text = ("smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+    text = ("smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     cfg = load_config(_write(tmp_path, text), env={"S": "tok"})
     assert cfg.smartsheet.base_url == "https://api.smartsheet.com/2.0"
     assert cfg.jira is None
@@ -64,7 +64,7 @@ def test_smartsheet_default_base_url(tmp_path):
 
 def test_missing_token_env_raises(tmp_path):
     text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
-            "  token_env: NOPE\n  scope_jql: project = A\n")
+            "  token_env_var: NOPE\n  scope_jql: project = A\n")
     with pytest.raises(ValueError, match="NOPE"):
         load_config(_write(tmp_path, text), env={})
 
@@ -128,3 +128,17 @@ def test_headers_reveal_real_token():
     assert jira_headers(j) == {"Authorization": f"Basic {expected}"}
     s = SmartsheetConfig(base_url="https://x/2.0", token="tok")
     assert ss_headers(s) == {"Authorization": "Bearer tok"}
+
+
+def test_old_token_env_key_gets_actionable_rename_error(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
+            "  token_env: T\n  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="token_env_var"):
+        load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_missing_token_env_var_key_is_actionable(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
+            "  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="token_env_var"):
+        load_config(_write(tmp_path, text), env={})

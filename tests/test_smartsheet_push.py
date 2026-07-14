@@ -142,7 +142,7 @@ def test_removes_and_missing_rows(fake_http):
 def test_cli_push_exits_nonzero_on_failures(tmp_path, monkeypatch,
                                             capsys):
     (tmp_path / "tentpole.yaml").write_text(
-        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+        "smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     monkeypatch.setenv("S", "tok")
     import tentpole.adapters.cli as edge_cli
 
@@ -268,7 +268,7 @@ def test_cli_push_reparent_failure_drives_nonzero_exit(tmp_path,
     a stubbed push_plans like test_cli_push_exits_nonzero_on_failures
     uses)."""
     (tmp_path / "tentpole.yaml").write_text(
-        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+        "smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     monkeypatch.setenv("S", "tok")
 
     plans_dir = tmp_path / "plans"
@@ -340,7 +340,7 @@ def test_cli_push_missing_column_exits_nonzero(tmp_path, monkeypatch,
     reach the real `tentpole push` exit code end to end, not just show
     up in an intermediate dict."""
     (tmp_path / "tentpole.yaml").write_text(
-        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+        "smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     monkeypatch.setenv("S", "tok")
 
     plans_dir = tmp_path / "plans"
@@ -398,7 +398,7 @@ def test_cli_push_missing_sheet_id_exits_nonzero(tmp_path, monkeypatch,
     configured id must reach the real `tentpole push` exit code, not
     just an intermediate report dict."""
     (tmp_path / "tentpole.yaml").write_text(
-        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+        "smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     monkeypatch.setenv("S", "tok")
 
     plans_dir = tmp_path / "plans"

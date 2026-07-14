@@ -108,7 +108,7 @@ def test_cli_pull_end_to_end(tmp_path, monkeypatch):
     config_path.write_text(
         "smartsheet:\n"
         "  base_url: https://api.smartsheetgov.com/2.0\n"
-        "  token_env: SS_TOKEN\n"
+        "  token_env_var: SS_TOKEN\n"
         "  sheets:\n"
         "    issues: 111\n"
     )

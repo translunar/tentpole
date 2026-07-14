@@ -38,14 +38,16 @@ pip install tentpole
    jira:
      base_url: https://yourco.atlassian.net
      email: you@yourco.com
-     token_env: JIRA_TOKEN          # token read from this env var
+     token_env_var: JIRA_TOKEN      # NAME of the env var holding the
+                                    # token; the token itself never
+                                    # lives in this file
      scope_jql: project = ABC
      projects: [ABC]
      board_id: 42
    smartsheet:
      # Gov deployments: https://api.smartsheetgov.com/2.0
      base_url: https://api.smartsheet.com/2.0
-     token_env: SMARTSHEET_TOKEN
+     token_env_var: SMARTSHEET_TOKEN
      sheets:                        # ids from `tentpole bootstrap`
        issues: 111                  # or created by hand from
        epics: 222                   # `tentpole schema show`
