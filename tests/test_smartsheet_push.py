@@ -159,6 +159,23 @@ def test_cli_push_exits_nonzero_on_failures(tmp_path, monkeypatch,
     assert "A-1" in out and "boom" in out
 
 
+def test_cli_old_token_env_config_prints_actionable_error_not_traceback(
+        tmp_path, capsys):
+    """FINAL REVIEW FIX: every edge handler calls load_config() outside
+    its own try/except, so a 0.2.1 config still using the renamed
+    token_env key must not surface as a bare traceback -- dispatch()
+    now catches ValueError from load_config the same way _push already
+    catches ValueError from push_plans."""
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env: S\n  sheets:\n    issues: 1\n")
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(tmp_path), "--state", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "ERROR:" in out
+    assert "token_env_var" in out
+
+
 def test_reparent_put_failure_caught_and_reported(fake_http):
     """Verify that reparent PUT failures are captured in result["failed"]
     and drive a nonzero exit code. This tests the MANDATORY FIX: the

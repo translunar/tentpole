@@ -50,6 +50,20 @@ def add_parsers(sub) -> None:
 
 
 def dispatch(args) -> int | None:
+    try:
+        return _dispatch(args)
+    except ValueError as err:
+        # Every edge handler below calls load_config() outside its own
+        # try/except -- a stale config (e.g. a 0.2.1 file still using
+        # the renamed token_env key) must not surface as a bare
+        # traceback (spec section 8: a silently failing sync must be
+        # impossible; the same posture applies to a loud one that's
+        # unreadable).
+        print(f"ERROR: {err}")
+        return 1
+
+
+def _dispatch(args) -> int | None:
     if args.command == "extract":
         return _extract(args)
     if args.command == "pull":

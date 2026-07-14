@@ -64,16 +64,6 @@ pip install tentpole
    hand (supported path), or try the experimental `tentpole bootstrap
    --config tentpole.yaml`.
 
-### The Team sheet
-
-The team roster lives in a human-owned `team` sheet (one row per
-person; `Person` must match the Jira display name exactly). `tentpole
-pull` reads it back and `sync` uses it as the roster; if the sheet is
-absent, the `core: team:` list in `tentpole.yaml` is the fallback. The
-`team_drift` check flags mismatches in both directions — someone with
-sprint work who is not on the roster (drift, or a display-name typo),
-and a roster member with no work in the current plan.
-
 3. Write `rules/hygiene.yaml` (required for `tentpole fix propose`;
    optional for `tentpole extract` and `tentpole sync`):
 
@@ -118,6 +108,21 @@ and a roster member with no work in the current plan.
    tentpole fix propose --bundle bundle/ --rules rules/hygiene.yaml --out proposals.json
    tentpole fix apply --config tentpole.yaml --proposals proposals.json
    ```
+
+### The Team sheet
+
+The team roster lives in a human-owned `team` sheet (one row per
+person; `Person` must match the Jira display name exactly). `tentpole
+pull` reads it back and `sync` uses it as the roster; if the sheet is
+absent, the `core: team:` list in `tentpole.yaml` is the fallback. The
+`team_drift` check flags mismatches in both directions — someone with
+sprint work who is not on the roster (drift, or a display-name typo),
+and a roster member with no work in the current plan.
+
+Keep `core: team:` in `tentpole.yaml` even once the team sheet exists:
+`tentpole check` reads only the bundle and has no access to the team
+sheet (only `sync` reads state), so removing `core: team:` makes
+`check` treat the roster as empty.
 
 ## Releasing
 

@@ -1,5 +1,6 @@
-"""Parse human-owned sheet state (Future Work, Exceptions) back into
-bundle inputs (spec section 7: the sync reads these, never writes them)."""
+"""Parse human-owned sheet state (Future Work, Exceptions, Team) back
+into bundle inputs (spec section 7: the sync reads these, never writes
+them)."""
 from __future__ import annotations
 
 import re
