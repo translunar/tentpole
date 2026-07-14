@@ -197,7 +197,7 @@ def team_drift(bundle: Bundle, buckets: list[Bucket],
             real_days[d.who] = real_days.get(d.who, 0.0) + d.estimate_days
     present = set(real_days) | {
         d.who for d in demand
-        if d.who and d.bucket_id in sprint_ids and d.kind == "ghost"}
+        if d.who and d.bucket_id in sprint_ids and d.kind in ("ghost", "overhead")}
     team = set(bundle.config.team)
     for person in sorted(set(real_days) - team):
         findings.append(Finding(

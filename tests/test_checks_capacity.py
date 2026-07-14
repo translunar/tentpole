@@ -85,3 +85,15 @@ def test_team_drift_ghost_counts_as_presence(make_bundle):
         ghosts=[Ghost(title="future thing", estimate_days=5.0,
                       target="sprint:2", owner="grace")])
     assert _drift_findings(b) == []
+
+
+def test_on_call_only_member_is_not_drift(make_bundle):
+    # grace's entire sprint is an on-call rotation ticket: compile_demand
+    # classifies it kind == "overhead" via the "overhead" label
+    # (Config.overhead_label), not "real" or "ghost". Direction 2 of
+    # team_drift must still treat her as present on the team.
+    b = make_bundle(issues=[
+        _task("T-1", "ada", 3.0, sprint_id=1),
+        _task("T-2", "grace", 2.0, sprint_id=1, labels=["overhead"]),
+    ])
+    assert _drift_findings(b) == []
