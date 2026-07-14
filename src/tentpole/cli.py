@@ -89,7 +89,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "sync":
-        bundle = load_bundle(args.bundle)
+        try:
+            bundle = load_bundle(args.bundle)
+        except ValueError as err:
+            # e.g. a bundle's config.json carries a bad sprints_per_plan
+            # -- print it and drive a nonzero exit rather than let a
+            # bare traceback be the only signal (spec section 8: a
+            # silently failing sync must be impossible), matching the
+            # posture already established in adapters/cli.py's dispatch().
+            print(f"ERROR: {err}")
+            return 1
         rules = load_rules(args.rules) if args.rules else None
 
         def _state(name: str) -> dict | None:
@@ -137,7 +146,14 @@ def main(argv: list[str] | None = None) -> int:
         print(text)
         return 0
 
-    bundle = load_bundle(args.bundle)
+    try:
+        bundle = load_bundle(args.bundle)
+    except ValueError as err:
+        # Same posture as the sync command above and adapters/cli.py's
+        # dispatch(): a bad sprints_per_plan (or other Config error)
+        # must not surface as a bare traceback.
+        print(f"ERROR: {err}")
+        return 1
     rules = load_rules(args.rules) if args.rules else None
     diag = assemble(bundle, rules=rules)
     if args.me:

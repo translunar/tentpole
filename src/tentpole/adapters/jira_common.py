@@ -98,7 +98,15 @@ def _sprint_id(value):
     last = value[-1]
     if isinstance(last, dict):
         if "id" in last:
-            return last["id"]
+            sprint_id = last["id"]
+            # A genuine int is the only acceptable id: None is
+            # indistinguishable from "no sprint" downstream, a string
+            # never matches an int Sprint.id, and bool is a subclass of
+            # int in Python but not a meaningful sprint count. Any of
+            # these must fall through to the raise below rather than
+            # silently pass through and drop the issue from its bucket.
+            if isinstance(sprint_id, int) and not isinstance(sprint_id, bool):
+                return sprint_id
     elif isinstance(last, str):
         match = _LEGACY_SPRINT_ID.search(last)
         if match:

@@ -61,6 +61,26 @@ def test_sync_appends_snapshots_and_reads_human_sheets(dirs):
     assert report["changes"]["capacity"]  # plan present (state never applied)
 
 
+def test_sync_bad_sprints_per_plan_prints_actionable_error_not_traceback(
+        dirs, capsys):
+    """A bundle whose config.json carries a bad sprints_per_plan (e.g. a
+    quoted "6") makes Config(**config_raw) raise ValueError inside
+    load_bundle. cli.py's sync command calls load_bundle with no
+    try/except, so this must not surface as a bare traceback -- match
+    the ERROR: <message> / exit 1 posture already established in
+    adapters/cli.py's dispatch()."""
+    bundle, state, out = dirs
+    (bundle / "config.json").write_text(
+        json.dumps({"team": ["ada"], "sprints_per_plan": "6"}))
+
+    rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
+               "--out", str(out)])
+    out_text = capsys.readouterr().out
+    assert rc == 1
+    assert "ERROR:" in out_text
+    assert "sprints_per_plan" in out_text
+
+
 def test_sync_creates_missing_state_dir(dirs):
     # FIX 1: --state need not already exist (first run on a clean checkout).
     bundle, state, out = dirs

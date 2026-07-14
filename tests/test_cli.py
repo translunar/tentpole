@@ -42,6 +42,22 @@ def test_check_clean_person_exits_0(bundle_dir, capsys):
     assert rc == 0
 
 
+def test_check_bad_sprints_per_plan_prints_actionable_error_not_traceback(
+        bundle_dir, capsys):
+    """Mirrors the sync-command fix: `check`'s load_bundle call has no
+    try/except either, so a bad sprints_per_plan in config.json must not
+    surface as a bare traceback -- same ERROR: <message> / exit 1
+    posture as adapters/cli.py's dispatch()."""
+    (bundle_dir / "config.json").write_text(
+        json.dumps({"team": ["ada", "grace"], "sprints_per_plan": "6"}))
+
+    rc = main(["check", "--bundle", str(bundle_dir), "--me", "ada"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "ERROR:" in out
+    assert "sprints_per_plan" in out
+
+
 def test_check_json_output(bundle_dir, capsys):
     rc = main(["check", "--bundle", str(bundle_dir), "--json"])
     parsed = json.loads(capsys.readouterr().out)

@@ -135,6 +135,12 @@ def test_cloud_and_dc_request_the_same_fields():
     lose every issue's estimate. This assertion closes that hole directly."""
     assert (set(jira_extract._fields(CLOUD)) - {"parent"}
             == set(jira_extract_dc._fields(DC)) - {"customfield_10014"})
+    # The subtraction above makes "parent" disappearing from Cloud's
+    # requested fields invisible to this assertion -- it would simply
+    # subtract nothing on both sides and still pass. Pin it directly:
+    # a live Cloud instance with no "parent" in the request means
+    # _epic_key always returns None, gutting every epic/program rollup.
+    assert "parent" in jira_extract._fields(CLOUD)
 
 
 class _FakeUrlopenResponse:
