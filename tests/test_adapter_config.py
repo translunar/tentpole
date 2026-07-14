@@ -142,3 +142,54 @@ def test_missing_token_env_var_key_is_actionable(tmp_path):
             "  scope_jql: project = A\n")
     with pytest.raises(ValueError, match="token_env_var"):
         load_config(_write(tmp_path, text), env={})
+
+
+DC_YAML = """
+jira:
+  base_url: https://jira.internal.example.com
+  deployment: datacenter
+  token_env_var: JIRA_PAT
+  epic_link_field: customfield_10014
+  scope_jql: project = ABC
+  projects: [ABC]
+  board_id: 7
+"""
+
+
+def test_deployment_defaults_to_cloud(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
+            "  token_env_var: T\n  scope_jql: project = A\n")
+    cfg = load_config(_write(tmp_path, text), env={"T": "tok"})
+    assert cfg.jira.deployment == "cloud"
+    assert cfg.jira.epic_link_field is None
+
+
+def test_datacenter_config_needs_no_email(tmp_path):
+    cfg = load_config(_write(tmp_path, DC_YAML), env={"JIRA_PAT": "pat"})
+    assert cfg.jira.deployment == "datacenter"
+    assert cfg.jira.email is None
+    assert cfg.jira.epic_link_field == "customfield_10014"
+    assert cfg.jira.token == "pat"
+
+
+def test_cloud_without_email_is_actionable(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n  token_env_var: T\n"
+            "  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="email"):
+        load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_datacenter_without_epic_link_field_is_actionable(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n"
+            "  deployment: datacenter\n  token_env_var: T\n"
+            "  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="epic_link_field"):
+        load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_unknown_deployment_is_actionable(tmp_path):
+    text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
+            "  deployment: onprem\n  token_env_var: T\n"
+            "  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="onprem"):
+        load_config(_write(tmp_path, text), env={"T": "tok"})

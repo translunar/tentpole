@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+DEPLOYMENTS = ("cloud", "datacenter")
+
 
 class Secret:
     """A credential that cannot leak through repr(), str(), f-strings,
@@ -41,7 +43,7 @@ class Secret:
 @dataclass(frozen=True)
 class JiraConfig:
     base_url: str
-    email: str
+    email: str | None
     token: Secret | str = field(repr=False)
     scope_jql: str
     projects: tuple[str, ...] = ()
@@ -49,10 +51,32 @@ class JiraConfig:
     sprint_field: str = "customfield_10020"
     hours_per_day: float = 8.0
     programs_file: str | None = None
+    deployment: str = "cloud"
+    epic_link_field: str | None = None
 
     def __post_init__(self):
         if not isinstance(self.token, Secret):
             object.__setattr__(self, "token", Secret(self.token))
+        if self.deployment not in DEPLOYMENTS:
+            raise ValueError(
+                f"unknown jira deployment {self.deployment!r}: use "
+                f"'cloud' (Jira Cloud: Basic email:token auth, "
+                f"/rest/api/3) or 'datacenter' (Jira Data Center or "
+                f"Server: Bearer PAT auth, /rest/api/2)")
+        if self.deployment == "cloud" and not self.email:
+            raise ValueError(
+                "jira.email is required when deployment: cloud -- Jira "
+                "Cloud authenticates with Basic base64(email:token). If "
+                "this is a self-hosted instance, set "
+                "deployment: datacenter (Bearer PAT, no email)")
+        if self.deployment == "datacenter" and not self.epic_link_field:
+            raise ValueError(
+                "jira.epic_link_field is required when deployment: "
+                "datacenter -- Data Center has no `parent` for epics, so "
+                "the epic key lives in an instance-specific custom "
+                "field. Find its id with GET /rest/api/2/field on your "
+                "instance (look for 'Epic Link'), e.g. "
+                "epic_link_field: customfield_10014")
 
 
 @dataclass(frozen=True)
@@ -101,7 +125,7 @@ def load_config(path: Path, env: dict | None = None) -> AdapterConfig:
         j = raw["jira"]
         jira = JiraConfig(
             base_url=j["base_url"].rstrip("/"),
-            email=j["email"],
+            email=j.get("email"),
             token=_token(j, env),
             scope_jql=j["scope_jql"],
             projects=tuple(j.get("projects", [])),
@@ -109,6 +133,8 @@ def load_config(path: Path, env: dict | None = None) -> AdapterConfig:
             sprint_field=j.get("sprint_field", "customfield_10020"),
             hours_per_day=float(j.get("hours_per_day", 8.0)),
             programs_file=j.get("programs_file"),
+            deployment=j.get("deployment", "cloud"),
+            epic_link_field=j.get("epic_link_field"),
         )
     smartsheet = None
     if "smartsheet" in raw:
