@@ -91,3 +91,16 @@ def test_sync_emptied_exceptions_sheet_drops_stale_bundle_exception(dirs):
     assert rc == 0
     report = json.loads((out / "report.json").read_text())
     assert "sprint_overload" not in report["findings"]
+
+
+def test_sync_team_sheet_overrides_bundle_config(dirs):
+    bundle, state, out = dirs
+    (state / "team.json").write_text(json.dumps({
+        "r1": {"Person": "grace", "_row_id": 1, "_parent": None}}))
+    rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
+               "--out", str(out)])
+    assert rc == 0
+    cap = json.loads((out / "plans" / "capacity.json").read_text())
+    keys = {c["key"] for c in cap}
+    assert any(k.startswith("grace|") for k in keys)
+    assert not any(k.startswith("ada|") for k in keys)
