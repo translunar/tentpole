@@ -10,7 +10,8 @@ from pathlib import Path
 
 from tentpole.adapters import cli as edge_cli
 from tentpole.diagnostics import assemble, personal, to_json
-from tentpole.humansheets import exceptions_from_sheet, ghosts_from_sheet
+from tentpole.humansheets import (exceptions_from_sheet, ghosts_from_sheet,
+                                  team_from_sheet)
 from tentpole.hygiene import load_rules
 from tentpole.model import load_bundle
 from tentpole.runreport import render_report
@@ -21,6 +22,7 @@ from tentpole.sync import run_sync
 _SECTION_ORDER = [
     "sprint_overload", "deadline_risk", "tentpole_runway",
     "dependency_readiness", "ghost_claims", "team_subscription",
+    "team_drift",
 ]
 
 
@@ -104,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
         if exceptions is not None:
             bundle = replace(bundle,
                              exceptions=exceptions_from_sheet(exceptions))
+        team_sheet = _state("team")
+        if team_sheet is not None:
+            # Present is authoritative, including present-but-empty --
+            # same posture as future_work above. Absent keeps the
+            # bundle's core: team: fallback.
+            bundle = replace(
+                bundle,
+                config=replace(bundle.config,
+                               team=team_from_sheet(team_sheet)))
         # run_sync expects a dict (never None) per machine sheet, even
         # when its state file is absent.
         current = {name: _state(name) or {}

@@ -96,6 +96,11 @@ SCHEMAS: dict[str, SheetSchema] = {
         ColumnDef("Person"), ColumnDef("Sprint", "NUMBER"),
         ColumnDef("Day Cost", "NUMBER"),
     ),
+    "team": _human(
+        "team",
+        ColumnDef("Person", primary=True),
+        ColumnDef("Notes"),
+    ),
 }
 
 

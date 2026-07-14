@@ -1,5 +1,5 @@
 from tentpole.buckets import buckets_for
-from tentpole.checks import sprint_overload, team_subscription
+from tentpole.checks import sprint_overload, team_drift, team_subscription
 from tentpole.demand import compile_demand
 from tentpole.model import Config, Ghost, Issue
 
@@ -45,3 +45,55 @@ def test_team_subscription_zero_capacity_does_not_crash(make_bundle):
     findings = team_subscription(b, bks, compile_demand(b, bks))
     assert [f.bucket_id for f in findings] == ["plan+1"]
     assert "subscribed" not in findings[0].message
+
+
+def _drift_findings(bundle):
+    buckets = buckets_for(bundle)
+    return team_drift(bundle, buckets, compile_demand(bundle, buckets))
+
+
+def test_team_drift_flags_both_directions(make_bundle):
+    b = make_bundle(issues=[
+        _task("T-1", "ada", 3.0, sprint_id=1),
+        _task("T-2", "hopper", 4.0, sprint_id=1),
+    ])   # team is ["ada", "grace"]
+    findings = _drift_findings(b)
+    by_subject = {f.subject: f for f in findings}
+    assert set(by_subject) == {"hopper", "grace"}
+    assert all(f.check == "team_drift" and f.severity == "yellow"
+               for f in findings)
+    assert "4.0d" in by_subject["hopper"].message
+    assert "not in team" in by_subject["hopper"].message
+    assert "no work" in by_subject["grace"].message
+
+
+def test_team_drift_quiet_when_roster_matches_work(make_bundle):
+    b = make_bundle(issues=[
+        _task("T-1", "ada", 3.0, sprint_id=1),
+        _task("T-2", "grace", 1.0, sprint_id=1),
+    ])
+    assert _drift_findings(b) == []
+
+
+def test_team_drift_quiet_on_empty_plan(make_bundle):
+    assert _drift_findings(make_bundle()) == []
+
+
+def test_team_drift_ghost_counts_as_presence(make_bundle):
+    b = make_bundle(
+        issues=[_task("T-1", "ada", 3.0, sprint_id=1)],
+        ghosts=[Ghost(title="future thing", estimate_days=5.0,
+                      target="sprint:2", owner="grace")])
+    assert _drift_findings(b) == []
+
+
+def test_on_call_only_member_is_not_drift(make_bundle):
+    # grace's entire sprint is an on-call rotation ticket: compile_demand
+    # classifies it kind == "overhead" via the "overhead" label
+    # (Config.overhead_label), not "real" or "ghost". Direction 2 of
+    # team_drift must still treat her as present on the team.
+    b = make_bundle(issues=[
+        _task("T-1", "ada", 3.0, sprint_id=1),
+        _task("T-2", "grace", 2.0, sprint_id=1, labels=["overhead"]),
+    ])
+    assert _drift_findings(b) == []

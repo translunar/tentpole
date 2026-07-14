@@ -38,14 +38,16 @@ pip install tentpole
    jira:
      base_url: https://yourco.atlassian.net
      email: you@yourco.com
-     token_env: JIRA_TOKEN          # token read from this env var
+     token_env_var: JIRA_TOKEN      # NAME of the env var holding the
+                                    # token; the token itself never
+                                    # lives in this file
      scope_jql: project = ABC
      projects: [ABC]
      board_id: 42
    smartsheet:
      # Gov deployments: https://api.smartsheetgov.com/2.0
      base_url: https://api.smartsheet.com/2.0
-     token_env: SMARTSHEET_TOKEN
+     token_env_var: SMARTSHEET_TOKEN
      sheets:                        # ids from `tentpole bootstrap`
        issues: 111                  # or created by hand from
        epics: 222                   # `tentpole schema show`
@@ -53,6 +55,7 @@ pip install tentpole
        dependencies: 444            # be configured; sync produces plans
        capacity: 555                # for each, and push refuses to let
        accuracy: 666                # any plan go nowhere
+       team: 777                    # human-owned roster sheet (optional)
    core:
      team: [ada, grace]
    ```
@@ -105,6 +108,21 @@ pip install tentpole
    tentpole fix propose --bundle bundle/ --rules rules/hygiene.yaml --out proposals.json
    tentpole fix apply --config tentpole.yaml --proposals proposals.json
    ```
+
+### The Team sheet
+
+The team roster lives in a human-owned `team` sheet (one row per
+person; `Person` must match the Jira display name exactly). `tentpole
+pull` reads it back and `sync` uses it as the roster; if the sheet is
+absent, the `core: team:` list in `tentpole.yaml` is the fallback. The
+`team_drift` check flags mismatches in both directions — someone with
+sprint work who is not on the roster (drift, or a display-name typo),
+and a roster member with no work in the current plan.
+
+Keep `core: team:` in `tentpole.yaml` even once the team sheet exists:
+`tentpole check` reads only the bundle and has no access to the team
+sheet (only `sync` reads state), so removing `core: team:` makes
+`check` treat the roster as empty.
 
 ## Releasing
 

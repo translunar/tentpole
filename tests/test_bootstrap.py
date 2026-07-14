@@ -38,7 +38,7 @@ def test_bootstrap_uses_workspace_when_configured(fake_http):
 def test_cli_bootstrap_prints_config_snippet(tmp_path, monkeypatch,
                                              capsys):
     (tmp_path / "tentpole.yaml").write_text(
-        "smartsheet:\n  token_env: S\n")
+        "smartsheet:\n  token_env_var: S\n")
     monkeypatch.setenv("S", "tok")
     import tentpole.adapters.cli as edge_cli
     monkeypatch.setattr(edge_cli.smartsheet_load, "bootstrap",

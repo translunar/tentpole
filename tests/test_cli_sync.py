@@ -91,3 +91,36 @@ def test_sync_emptied_exceptions_sheet_drops_stale_bundle_exception(dirs):
     assert rc == 0
     report = json.loads((out / "report.json").read_text())
     assert "sprint_overload" not in report["findings"]
+
+
+def test_sync_team_sheet_overrides_bundle_config(dirs):
+    bundle, state, out = dirs
+    (state / "team.json").write_text(json.dumps({
+        "r1": {"Person": "grace", "_row_id": 1, "_parent": None}}))
+    rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
+               "--out", str(out)])
+    assert rc == 0
+    cap = json.loads((out / "plans" / "capacity.json").read_text())
+    keys = {c["key"] for c in cap}
+    assert any(k.startswith("grace|") for k in keys)
+    assert not any(k.startswith("ada|") for k in keys)
+
+
+def test_sync_emptied_team_sheet_drops_stale_bundle_roster(dirs):
+    # Minor finding (fix-now): present-but-empty team.json ({}) must be
+    # authoritative -- same posture as future_work/exceptions above --
+    # not fall back to the bundle's core: team: roster. An emptied
+    # roster is a deliberate human act (spec section 7); if the empty
+    # sheet were treated as absent (e.g. `if team_sheet:` instead of
+    # `if team_sheet is not None:`), ada's core: team: membership would
+    # silently survive and keep generating capacity rows for her.
+    bundle, state, out = dirs
+    (state / "team.json").write_text("{}")
+
+    rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
+               "--out", str(out)])
+    assert rc == 0
+    cap = json.loads((out / "plans" / "capacity.json").read_text())
+    keys = {c["key"] for c in cap}
+    assert not any(k.startswith("ada|") for k in keys)
+    assert cap == []

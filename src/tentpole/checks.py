@@ -185,3 +185,28 @@ def ghost_claims(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
             f"'{ghost.title}' ({ghost.estimate_days:.1f}d) is targeted at "
             f"{ghost.target} but has no Jira ticket — ticket it or push it"))
     return findings
+
+
+def team_drift(bundle: Bundle, buckets: list[Bucket],
+               demand: list[DemandItem]) -> list[Finding]:
+    findings = []
+    sprint_ids = {bk.id for bk in buckets if bk.id.startswith("sprint:")}
+    real_days: dict[str, float] = {}
+    for d in demand:
+        if d.who and d.bucket_id in sprint_ids and d.kind == "real":
+            real_days[d.who] = real_days.get(d.who, 0.0) + d.estimate_days
+    present = set(real_days) | {
+        d.who for d in demand
+        if d.who and d.bucket_id in sprint_ids and d.kind in ("ghost", "overhead")}
+    team = set(bundle.config.team)
+    for person in sorted(set(real_days) - team):
+        findings.append(Finding(
+            "team_drift", "yellow", person, None,
+            f"{person} has {real_days[person]:.1f}d of sprint work but is "
+            f"not in team — roster drift or a display-name mismatch"))
+    if present:   # an empty plan (pre-planning week) should not flag anyone
+        for person in sorted(team - present):
+            findings.append(Finding(
+                "team_drift", "yellow", person, None,
+                f"{person} is in team but has no work in the current plan"))
+    return findings

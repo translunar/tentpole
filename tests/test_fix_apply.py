@@ -44,7 +44,7 @@ def test_apply_action_rejects_unallowlisted(fake_http):
 def _setup(tmp_path, monkeypatch, proposals):
     cfg = tmp_path / "tentpole.yaml"
     cfg.write_text("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
-                   "  token_env: J\n  scope_jql: project = ABC\n")
+                   "  token_env_var: J\n  scope_jql: project = ABC\n")
     monkeypatch.setenv("J", "tok")
     pfile = tmp_path / "proposals.json"
     pfile.write_text(json.dumps(proposals))

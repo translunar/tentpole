@@ -145,7 +145,7 @@ def test_cli_extract_end_to_end(tmp_path, monkeypatch):
         "jira:\n"
         "  base_url: https://example.atlassian.net\n"
         "  email: a@b.c\n"
-        "  token_env: JIRA_TOKEN\n"
+        "  token_env_var: JIRA_TOKEN\n"
         "  scope_jql: project = ABC\n"
         "core:\n"
         "  team: [ada]\n"
@@ -202,7 +202,7 @@ def test_cli_extract_threads_rules_to_hygiene(tmp_path, monkeypatch):
         "jira:\n"
         "  base_url: https://example.atlassian.net\n"
         "  email: a@b.c\n"
-        "  token_env: JIRA_TOKEN\n"
+        "  token_env_var: JIRA_TOKEN\n"
         "  scope_jql: project = ABC\n")
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(

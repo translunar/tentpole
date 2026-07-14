@@ -75,11 +75,21 @@ class AdapterConfig:
 
 
 def _token(section: dict, env: dict) -> str:
-    var = section["token_env"]
+    if "token_env" in section:
+        raise ValueError(
+            "config key 'token_env' was renamed to 'token_env_var' "
+            "(it holds the NAME of the environment variable containing "
+            "the token, never the token itself)")
+    if "token_env_var" not in section:
+        raise ValueError(
+            "missing 'token_env_var': the name of the environment "
+            "variable holding the API token (the token itself never "
+            "goes in this file)")
+    var = section["token_env_var"]
     if var not in env:
         raise ValueError(
-            f"environment variable {var!r} (named by token_env) is not "
-            f"set")
+            f"environment variable {var!r} (named by token_env_var) is "
+            f"not set")
     return env[var]
 
 

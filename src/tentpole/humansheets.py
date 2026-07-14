@@ -1,5 +1,6 @@
-"""Parse human-owned sheet state (Future Work, Exceptions) back into
-bundle inputs (spec section 7: the sync reads these, never writes them)."""
+"""Parse human-owned sheet state (Future Work, Exceptions, Team) back
+into bundle inputs (spec section 7: the sync reads these, never writes
+them)."""
 from __future__ import annotations
 
 import re
@@ -80,3 +81,21 @@ def exceptions_from_sheet(rows: dict[str, dict]) -> list[ExceptionRow]:
                              sheet="exceptions", row=person),
         ))
     return out
+
+
+def team_from_sheet(rows: dict[str, dict]) -> list[str]:
+    """Roster from the human-owned Team sheet, in sheet order. Person
+    must match the Jira display name exactly -- the team_drift check
+    flags mismatches as roster drift."""
+    team: list[str] = []
+    for cells in rows.values():
+        person = _text(cells, "Person")
+        if not person:
+            continue
+        if person in team:
+            # A duplicate is always a human error; silent dedupe would
+            # hide a typo'd near-duplicate right next to it.
+            raise ValueError(
+                f"team sheet lists {person!r} more than once")
+        team.append(person)
+    return team
