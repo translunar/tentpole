@@ -1,51 +1,36 @@
 """Jira Cloud extract adapter (spec sections 3 and 8; open question 2).
-Fetch and dump -- no analysis lives here. Cloud-first: POST
-/rest/api/3/search/jql with token pagination; epic relationship via
-`parent` (Epic Link is retired on Cloud)."""
+Fetch and dump -- no analysis lives here. Cloud-specific surface: POST
+/rest/api/3/search/jql with a nextPageToken cursor, Basic email:token
+auth, and the epic relationship via `parent` (Epic Link is retired on
+Cloud). Everything else -- parsing, the fetch loops, the bundle writer --
+is shared with the Data Center adapter via jira_common."""
 from __future__ import annotations
 
-import base64
-import json
-from pathlib import Path
-from urllib.parse import quote
-
+from tentpole.adapters import jira_common
 from tentpole.adapters.config import JiraConfig
-from tentpole.adapters.http import HttpError, request
+from tentpole.adapters.http import request
+from tentpole.adapters.jira_common import (      # noqa: F401  (re-exported)
+    BASE_FIELDS, call, fetch_sprints, fetch_status_categories,
+    fetch_versions, headers, write_bundle,
+)
 
-BASE_FIELDS = ["summary", "issuetype", "status", "assignee",
-               "timetracking", "parent", "fixVersions", "labels",
-               "issuelinks"]
-
-_CATEGORY = {"new": "todo", "indeterminate": "in_progress",
-             "done": "done", "undefined": "todo"}
-
-
-def _status_category(key: str) -> str:
-    try:
-        return _CATEGORY[key]
-    except KeyError:
-        # Fail loudly but actionably: a genuinely unknown statusCategory
-        # key must still stop the extract (silently guessing would hide a
-        # broken sync), but name the offending key rather than let a bare
-        # KeyError surface.
-        raise KeyError(
-            f"unknown Jira statusCategory key {key!r}; known keys are "
-            f"{sorted(_CATEGORY)} -- update tentpole's _CATEGORY map"
-        ) from None
+# Re-exported under its historical name: adapters/jira_write.py and the
+# test suite import `_headers` from this module.
+_headers = headers
 
 
-def _headers(cfg: JiraConfig) -> dict:
-    cred = base64.b64encode(
-        f"{cfg.email}:{cfg.token.reveal()}".encode()).decode()
-    return {"Authorization": f"Basic {cred}"}
+def _fields(cfg: JiraConfig) -> list[str]:
+    return BASE_FIELDS + ["parent", cfg.sprint_field]
 
 
-def _call(cfg, method, path, *, params=None, body=None, http=request):
-    return http(method, cfg.base_url + path, _headers(cfg),
-                params=params, body=body)
+def _epic_key(fields: dict) -> str | None:
+    # Cloud: the epic IS the parent (Epic Link is retired).
+    parent = fields.get("parent")
+    return parent["key"] if parent else None
 
 
-def _search_pages(cfg, jql, fields, *, expand=None, http=request):
+def search_pages(cfg, jql, fields, *, expand=None, http=request):
+    """Cloud search pagination: an opaque nextPageToken cursor."""
     token = None
     while True:
         body = {"jql": jql, "maxResults": 100, "fields": fields}
@@ -53,197 +38,28 @@ def _search_pages(cfg, jql, fields, *, expand=None, http=request):
             body["expand"] = expand
         if token:
             body["nextPageToken"] = token
-        page = _call(cfg, "POST", "/rest/api/3/search/jql", body=body,
-                     http=http)
+        page = call(cfg, "POST", "/rest/api/3/search/jql", body=body,
+                    http=http)
         yield from page.get("issues", [])
         token = page.get("nextPageToken")
         if not token:
             return
 
 
-def fetch_status_categories(cfg, http=request) -> dict[str, str]:
-    statuses = _call(cfg, "GET", "/rest/api/3/status", http=http)
-    return {s["name"]: _status_category(s["statusCategory"]["key"])
-            for s in statuses}
-
-
-def _days(seconds, hours_per_day):
-    if seconds is None:
-        return None
-    return round(seconds / 3600.0 / hours_per_day, 2)
-
-
-def _sprint_id(value):
-    # The sprint custom field is a list of sprint objects; the last is
-    # the issue's current placement.
-    if not value:
-        return None
-    last = value[-1]
-    return last.get("id") if isinstance(last, dict) else None
-
-
-def _cycle_dates(changelog, categories):
-    first_in_progress, done_at = None, None
-    histories = sorted((changelog or {}).get("histories", []),
-                       key=lambda h: h.get("created", ""))
-    for h in histories:
-        when = h.get("created", "")[:10]
-        for item in h.get("items", []):
-            if item.get("field") != "status":
-                continue
-            cat = categories.get(item.get("toString"))
-            if cat == "in_progress" and first_in_progress is None:
-                first_in_progress = when
-            if cat == "done":
-                done_at = when
-            elif cat is not None:
-                done_at = None   # moved back out of done: date is stale
-    return first_in_progress, done_at
-
-
 def parse_issue(raw: dict, cfg: JiraConfig, categories: dict[str, str],
                 programs: dict[str, str],
                 external: bool = False) -> dict:
-    f = raw["fields"]
-    status_category = _status_category(f["status"]["statusCategory"]["key"])
-    tt = f.get("timetracking") or {}
-    parent = f.get("parent")
-    epic_key = parent["key"] if parent else None
-    links = []
-    for link in f.get("issuelinks", []):
-        if "outwardIssue" in link:
-            links.append({"type": link["type"]["name"],
-                          "direction": "outward",
-                          "other_key": link["outwardIssue"]["key"]})
-        elif "inwardIssue" in link:
-            links.append({"type": link["type"]["name"],
-                          "direction": "inward",
-                          "other_key": link["inwardIssue"]["key"]})
-    first_in_progress, done_at = _cycle_dates(raw.get("changelog"),
-                                              categories)
-    if status_category != "done":
-        done_at = None   # reopened issues must not keep a done date
-    assignee = f.get("assignee") or {}
-    return {
-        "key": raw["key"],
-        "summary": f.get("summary") or "",
-        "issue_type": f["issuetype"]["name"],
-        "status_category": status_category,
-        "assignee": assignee.get("displayName"),
-        "original_estimate_days": _days(
-            tt.get("originalEstimateSeconds"), cfg.hours_per_day),
-        "remaining_estimate_days": _days(
-            tt.get("remainingEstimateSeconds"), cfg.hours_per_day),
-        "epic_key": epic_key,
-        "fix_versions": [v["name"] for v in f.get("fixVersions", [])],
-        "sprint_id": _sprint_id(f.get(cfg.sprint_field)),
-        "labels": f.get("labels", []),
-        "links": links,
-        "program": programs.get(raw["key"]) or programs.get(epic_key),
-        "first_in_progress": first_in_progress,
-        "done_at": done_at,
-        "external": external,
-    }
-
-
-def _stub_external(key: str) -> dict:
-    return {"key": key, "summary": "", "issue_type": "Unknown",
-            "status_category": "todo", "assignee": None,
-            "original_estimate_days": None,
-            "remaining_estimate_days": None, "epic_key": None,
-            "fix_versions": [], "sprint_id": None, "labels": [],
-            "links": [], "program": None, "first_in_progress": None,
-            "done_at": None, "external": True}
+    return jira_common.parse_issue(
+        raw, cfg, categories, programs,
+        epic_key=_epic_key(raw["fields"]), external=external)
 
 
 def fetch_issues(cfg, categories, programs, http=request) -> list[dict]:
-    fields = BASE_FIELDS + [cfg.sprint_field]
-    issues = [parse_issue(r, cfg, categories, programs)
-              for r in _search_pages(cfg, cfg.scope_jql, fields,
-                                     expand="changelog", http=http)]
-    known = {i["key"] for i in issues}
-    linked = sorted({link["other_key"] for i in issues
-                     for link in i["links"]} - known)
-    if not linked:
-        return issues
-    jql = "key in (" + ",".join(linked) + ")"
-    try:
-        external = [parse_issue(r, cfg, categories, programs,
-                                external=True)
-                    for r in _search_pages(cfg, jql, fields, http=http)]
-    except HttpError as err:
-        if err.status not in (403, 404):
-            # Anything other than "not visible" (403) or "not found"
-            # (404) is a real infrastructure failure -- an expired
-            # token (401), an exhausted-retries 5xx, etc. Silently
-            # stubbing those would hide a broken sync, so let it
-            # propagate and fail the extract loudly.
-            raise
-        # No read access to (some of) the linked projects, or they no
-        # longer exist: keep the dependency edges visible with
-        # status-unknown stubs rather than failing the whole extract
-        # (spec section 2: cross-team read access is an open question).
-        external = [_stub_external(k) for k in linked]
-    return issues + external
-
-
-def fetch_sprints(cfg, http=request) -> list[dict]:
-    if cfg.board_id is None:
-        return []
-    out, start = [], 0
-    while True:
-        page = _call(cfg, "GET",
-                     f"/rest/agile/1.0/board/{cfg.board_id}/sprint",
-                     params={"startAt": start,
-                             "state": "active,future"},
-                     http=http)
-        values = page.get("values", [])
-        for s in values:
-            if s.get("startDate") and s.get("endDate"):
-                out.append({"id": s["id"], "name": s["name"],
-                            "start": s["startDate"][:10],
-                            "end": s["endDate"][:10]})
-        if page.get("isLast", True):
-            return out
-        start += len(values)
-
-
-def fetch_versions(cfg, http=request) -> list[dict]:
-    out = []
-    for project in cfg.projects:
-        for v in _call(cfg, "GET",
-                       f"/rest/api/3/project/{quote(project, safe='')}"
-                       f"/versions",
-                       http=http):
-            out.append({"name": v["name"],
-                        "release_date": v.get("releaseDate"),
-                        "released": v.get("released", False)})
-    return out
+    return jira_common.fetch_issues(
+        cfg, categories, programs, search_pages=search_pages,
+        fields=_fields(cfg), epic_key_of=_epic_key, http=http)
 
 
 def fetch_hygiene(cfg, rules, http=request) -> dict[str, list[str]]:
-    # Spec section 5: Jira itself evaluates each rule's JQL at extract
-    # time, scoped to the in-scope set; the core only joins membership.
-    out = {}
-    for rule in rules:
-        if rule.jql is None:
-            continue
-        jql = f"({cfg.scope_jql}) AND ({rule.jql})"
-        out[rule.name] = [r["key"]
-                          for r in _search_pages(cfg, jql, ["id"],
-                                                 http=http)]
-    return out
-
-
-def write_bundle(out_dir: Path, *, as_of: str, issues, sprints,
-                 versions, hygiene, config=None) -> None:
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "meta.json").write_text(json.dumps({"as_of": as_of}))
-    (out_dir / "issues.json").write_text(json.dumps(issues, indent=2))
-    (out_dir / "sprints.json").write_text(json.dumps(sprints, indent=2))
-    (out_dir / "fix_versions.json").write_text(
-        json.dumps(versions, indent=2))
-    (out_dir / "hygiene.json").write_text(json.dumps(hygiene, indent=2))
-    if config is not None:
-        (out_dir / "config.json").write_text(json.dumps(config, indent=2))
+    return jira_common.fetch_hygiene(cfg, rules,
+                                     search_pages=search_pages, http=http)
