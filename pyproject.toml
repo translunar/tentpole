@@ -1,6 +1,6 @@
 [project]
 name = "tentpole"
-version = "0.2.1"
+version = "0.3.0"
 description = "One-way Jira -> Smartsheet planning transformer"
 readme = "README.md"
 license = "MIT"

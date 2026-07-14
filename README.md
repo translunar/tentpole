@@ -55,6 +55,7 @@ pip install tentpole
        dependencies: 444            # be configured; sync produces plans
        capacity: 555                # for each, and push refuses to let
        accuracy: 666                # any plan go nowhere
+       team: 777                    # human-owned roster sheet (optional)
    core:
      team: [ada, grace]
    ```
@@ -62,6 +63,16 @@ pip install tentpole
 2. Create the sheets: print `tentpole schema show` and build them by
    hand (supported path), or try the experimental `tentpole bootstrap
    --config tentpole.yaml`.
+
+### The Team sheet
+
+The team roster lives in a human-owned `team` sheet (one row per
+person; `Person` must match the Jira display name exactly). `tentpole
+pull` reads it back and `sync` uses it as the roster; if the sheet is
+absent, the `core: team:` list in `tentpole.yaml` is the fallback. The
+`team_drift` check flags mismatches in both directions — someone with
+sprint work who is not on the roster (drift, or a display-name typo),
+and a roster member with no work in the current plan.
 
 3. Write `rules/hygiene.yaml` (required for `tentpole fix propose`;
    optional for `tentpole extract` and `tentpole sync`):
