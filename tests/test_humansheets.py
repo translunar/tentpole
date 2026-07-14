@@ -86,3 +86,23 @@ def test_blank_target_still_defaults_unscheduled():
 def test_missing_target_still_defaults_unscheduled():
     rows = {"1": {"Title": "G", "Estimate Days": 1}}
     assert ghosts_from_sheet(rows)[0].target == "unscheduled"
+
+
+def test_team_from_sheet_orders_and_skips_blanks():
+    from tentpole.humansheets import team_from_sheet
+
+    rows = {
+        "1": {"Person": "Ada Lovelace", "_row_id": 1},
+        "2": {"Person": "  "},
+        "3": {"Person": "Grace Hopper", "Notes": "on loan until Q4"},
+    }
+    assert team_from_sheet(rows) == ["Ada Lovelace", "Grace Hopper"]
+
+
+def test_team_from_sheet_rejects_duplicates():
+    from tentpole.humansheets import team_from_sheet
+
+    rows = {"1": {"Person": "Ada Lovelace"},
+            "2": {"Person": "Ada Lovelace"}}
+    with pytest.raises(ValueError, match="Ada Lovelace"):
+        team_from_sheet(rows)
