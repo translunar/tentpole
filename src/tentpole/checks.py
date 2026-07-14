@@ -10,8 +10,6 @@ from tentpole.demand import DemandItem
 from tentpole.model import Bundle
 from tentpole.throughput import capacity_for, throughput_for
 
-PLAN_SCALE = {"plan+1": 6.0, "plan+2": 6.0}  # sprints per coarse bucket
-
 
 @dataclass(frozen=True)
 class Finding:
@@ -57,7 +55,8 @@ def team_subscription(bundle: Bundle, buckets: list[Bucket],
             cap = sum(capacity_for(bundle, p, bucket, demand)
                       for p in bundle.config.team)
         else:
-            cap = sum(throughput_for(bundle, p) * PLAN_SCALE[bucket.id]
+            cap = sum(throughput_for(bundle, p)
+                      * bundle.config.sprints_per_plan
                       for p in bundle.config.team)
         if total > cap:
             pct = f" ({total / cap:.0%} subscribed)" if cap > 0 else ""

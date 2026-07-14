@@ -22,9 +22,14 @@ def buckets_for(bundle: Bundle) -> list[Bucket]:
         key=lambda s: s.start)
     out = [Bucket(f"sprint:{s.id}", s.start, s.end) for s in active]
     anchor = active[-1].end if active else bundle.as_of
+    # One derivation: the same sprints_per_plan that prices a plan
+    # bucket's capacity in checks.team_subscription also sets how many
+    # days it spans, so the two can never disagree about the horizon.
+    plan_days = round(bundle.config.sprints_per_plan
+                      * bundle.config.sprint_length_days)
     p1_start = anchor + timedelta(days=1)
-    p1_end = anchor + timedelta(days=60)
-    p2_end = anchor + timedelta(days=120)
+    p1_end = anchor + timedelta(days=plan_days)
+    p2_end = anchor + timedelta(days=2 * plan_days)
     out.append(Bucket("plan+1", p1_start, p1_end))
     out.append(Bucket("plan+2", p1_end + timedelta(days=1), p2_end))
     out.append(Bucket("beyond", p2_end + timedelta(days=1), None))

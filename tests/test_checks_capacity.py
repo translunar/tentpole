@@ -1,7 +1,10 @@
+from datetime import date
+
 from tentpole.buckets import buckets_for
-from tentpole.checks import sprint_overload, team_drift, team_subscription
+from tentpole.checks import (deadline_risk, sprint_overload, team_drift,
+                             team_subscription)
 from tentpole.demand import compile_demand
-from tentpole.model import Config, Ghost, Issue
+from tentpole.model import Config, FixVersion, Ghost, Issue
 
 
 def _task(key, person, est, sprint_id=None, **kw):
@@ -97,3 +100,58 @@ def test_on_call_only_member_is_not_drift(make_bundle):
         _task("T-2", "grace", 2.0, sprint_id=1, labels=["overhead"]),
     ])
     assert _drift_findings(b) == []
+
+
+def test_team_subscription_prices_plan_buckets_at_sprints_per_plan(
+        make_bundle):
+    """Coarse-bucket capacity is throughput x sprints_per_plan. Prior
+    throughput is ~7.65d/sprint, so a team of two is ~91.8d of plan+1
+    capacity at 6 sprints and ~61.2d at 4 -- a 70d ghost fits the first
+    and overruns the second."""
+    def _bundle(**kw):
+        return make_bundle(
+            ghosts=[Ghost(title="G", estimate_days=70.0, target="plan+1")],
+            **kw)
+
+    six = _bundle()
+    four = _bundle(config=Config(team=["ada", "grace"], sprints_per_plan=4))
+    six_bks, four_bks = buckets_for(six), buckets_for(four)
+    assert team_subscription(six, six_bks, compile_demand(six, six_bks)) == []
+    over = team_subscription(four, four_bks, compile_demand(four, four_bks))
+    assert [f.bucket_id for f in over] == ["plan+1"]
+    assert "61.2d team capacity" in over[0].message
+
+
+def test_sprints_per_plan_moves_deadline_risk_and_capacity_together(
+        make_bundle):
+    """The date spans and the capacity scale are one number. At
+    sprints_per_plan=4 the plan+1 window closes 20 days earlier, so a
+    deadline that sat exactly on plan+1's last day under the default now
+    lands in plan+2 and deadline_risk fires -- while team_subscription
+    prices that same bucket at 4 sprints instead of 6. The two checks can
+    no longer disagree about how long a plan bucket is."""
+    def _bundle(**kw):
+        return make_bundle(
+            issues=[_task("T-1", "ada", 8.0, fix_versions=["R1"])],
+            fix_versions=[FixVersion("R1",
+                                     release_date=date(2026, 11, 9))],
+            ghosts=[Ghost(title="G", estimate_days=70.0, target="plan+1")],
+            **kw)
+
+    six = _bundle()
+    four = _bundle(config=Config(team=["ada", "grace"], sprints_per_plan=4))
+    six_bks, four_bks = buckets_for(six), buckets_for(four)
+
+    # Default: the deadline is the last day of plan+1 (2026-11-09) and the
+    # 78d of demand fits in ~91.8d of capacity. Both checks are quiet.
+    assert deadline_risk(six, six_bks) == []
+    assert team_subscription(six, six_bks, compile_demand(six, six_bks)) == []
+
+    # sprints_per_plan=4: plan+1 now ends 2026-10-20, so T-1's deadline
+    # falls in plan+2 (ends 2026-11-29, past the deadline) and the ghost
+    # alone overruns plan+1's 61.2d.
+    late = deadline_risk(four, four_bks)
+    assert [f.subject for f in late] == ["R1"]
+    assert "past the 2026-11-09 deadline" in late[0].message
+    over = team_subscription(four, four_bks, compile_demand(four, four_bks))
+    assert [f.bucket_id for f in over] == ["plan+1"]

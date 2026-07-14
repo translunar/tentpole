@@ -73,6 +73,10 @@ class Config:
     annual_vacation_days: float = 24.0
     annual_overhead_days: float = 30.0
     sprint_length_days: float = 10.0
+    sprints_per_plan: int = 6      # coarse-bucket horizon: sets BOTH the
+                                   # plan+N date spans (buckets.buckets_for)
+                                   # and their capacity scale
+                                   # (checks.team_subscription)
     min_sprints_for_empirical: int = 3
     overhead_label: str = "overhead"
     overhead_summary_patterns: tuple[str, ...] = (
