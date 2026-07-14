@@ -74,3 +74,10 @@ class FakeHttp:
 @pytest.fixture
 def fake_http():
     return FakeHttp()
+
+
+@pytest.fixture
+def make_http():
+    """The FakeHttp class itself, for tests driving two adapters (and so
+    two independent response queues) in one test."""
+    return FakeHttp

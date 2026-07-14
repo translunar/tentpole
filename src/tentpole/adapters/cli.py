@@ -8,7 +8,8 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from tentpole.adapters import jira_extract, jira_write, smartsheet_load
+from tentpole.adapters import (jira_extract, jira_extract_dc, jira_write,
+                               smartsheet_load)
 from tentpole.adapters.config import load_config
 from tentpole.fixes import propose
 from tentpole.hygiene import load_rules
@@ -79,23 +80,32 @@ def _dispatch(args) -> int | None:
     return None
 
 
+def _adapter(jira_cfg):
+    """Deployment picks the extract adapter. Both emit the same bundle,
+    so nothing downstream of here can tell them apart."""
+    if jira_cfg.deployment == "datacenter":
+        return jira_extract_dc
+    return jira_extract
+
+
 def _extract(args) -> int:
     cfg = load_config(args.config)
     if cfg.jira is None:
         raise SystemExit("config has no jira: section")
+    adapter = _adapter(cfg.jira)
     rules = load_rules(args.rules) if args.rules else []
     programs = {}
     if cfg.jira.programs_file:
         programs = json.loads(Path(cfg.jira.programs_file).read_text())
-    categories = jira_extract.fetch_status_categories(cfg.jira)
-    issues = jira_extract.fetch_issues(cfg.jira, categories, programs)
-    jira_extract.write_bundle(
+    categories = adapter.fetch_status_categories(cfg.jira)
+    issues = adapter.fetch_issues(cfg.jira, categories, programs)
+    adapter.write_bundle(
         args.out,
         as_of=date.today().isoformat(),
         issues=issues,
-        sprints=jira_extract.fetch_sprints(cfg.jira),
-        versions=jira_extract.fetch_versions(cfg.jira),
-        hygiene=jira_extract.fetch_hygiene(cfg.jira, rules),
+        sprints=adapter.fetch_sprints(cfg.jira),
+        versions=adapter.fetch_versions(cfg.jira),
+        hygiene=adapter.fetch_hygiene(cfg.jira, rules),
         config=cfg.core or None,
     )
     print(f"bundle written to {args.out}")
