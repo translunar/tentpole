@@ -146,7 +146,7 @@ jira:
   # email is not needed: Data Center authenticates with a Bearer PAT
   token_env_var: JIRA_PAT
   epic_link_field: customfield_10014   # required on datacenter
-  sprint_field: customfield_10104      # instance-specific too
+  sprint_field: customfield_10104      # required on datacenter too
   scope_jql: project = ABC
   projects: [ABC]
   board_id: 42
@@ -154,7 +154,12 @@ jira:
 
 **Custom-field ids are instance-specific.** `epic_link_field` (the Epic
 Link) and `sprint_field` differ between Jira instances and must never be
-guessed. Find them on your instance with:
+guessed, so both are **required when `deployment: datacenter`** and
+tentpole refuses to start without them: leaving `sprint_field` unset
+would silently inherit Cloud's `customfield_10020`, and since Jira
+ignores unknown field ids instead of rejecting them, every issue's
+`sprint_id` would come back null with no error at all. Find your
+instance's ids with:
 
 ```sh
 curl -H "Authorization: Bearer $JIRA_PAT" \

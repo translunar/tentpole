@@ -150,6 +150,7 @@ jira:
   deployment: datacenter
   token_env_var: JIRA_PAT
   epic_link_field: customfield_10014
+  sprint_field: customfield_10020
   scope_jql: project = ABC
   projects: [ABC]
   board_id: 7
@@ -185,6 +186,32 @@ def test_datacenter_without_epic_link_field_is_actionable(tmp_path):
             "  scope_jql: project = A\n")
     with pytest.raises(ValueError, match="epic_link_field"):
         load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_datacenter_without_sprint_field_is_actionable(tmp_path):
+    """The Cloud default (customfield_10020) is a Cloud-shaped id. Jira
+    silently ignores unknown field ids instead of rejecting them, so on
+    Data Center every issue's sprint_id would come back null with no
+    error -- a broken sync that looks healthy. Must be required and
+    validated exactly like epic_link_field, and only AFTER that check
+    (a config missing both keys must still raise about
+    epic_link_field first, per test_datacenter_without_epic_link_field
+    _is_actionable above)."""
+    text = ("jira:\n  base_url: https://x.net\n"
+            "  deployment: datacenter\n  token_env_var: T\n"
+            "  epic_link_field: customfield_10014\n"
+            "  scope_jql: project = A\n")
+    with pytest.raises(ValueError, match="sprint_field"):
+        load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_cloud_without_sprint_field_still_defaults(tmp_path):
+    """Cloud keeps its customfield_10020 default, unchanged -- only
+    datacenter must specify it explicitly."""
+    text = ("jira:\n  base_url: https://x.net\n  email: a@b.c\n"
+            "  token_env_var: T\n  scope_jql: project = A\n")
+    cfg = load_config(_write(tmp_path, text), env={"T": "tok"})
+    assert cfg.jira.sprint_field == "customfield_10020"
 
 
 def test_unknown_deployment_is_actionable(tmp_path):

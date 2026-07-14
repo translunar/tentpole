@@ -14,7 +14,8 @@ CLOUD = JiraConfig(base_url="https://x.net", email="a@b.c", token="t",
 DC = JiraConfig(base_url="https://jira.internal", email=None, token="pat",
                 scope_jql="project = ABC", projects=("ABC",), board_id=7,
                 deployment="datacenter",
-                epic_link_field="customfield_10014")
+                epic_link_field="customfield_10014",
+                sprint_field="customfield_10020")
 
 STATUSES = [{"name": "To Do", "statusCategory": {"key": "new"}},
             {"name": "In Progress",
@@ -188,6 +189,7 @@ def test_cli_extract_routes_datacenter_config_to_the_dc_adapter(
         "  deployment: datacenter\n"
         "  token_env_var: JIRA_PAT\n"
         "  epic_link_field: customfield_10014\n"
+        "  sprint_field: customfield_10020\n"
         "  scope_jql: project = ABC\n"
         "core:\n"
         "  team: [ada]\n")

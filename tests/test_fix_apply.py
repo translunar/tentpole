@@ -103,7 +103,8 @@ def test_issue_key_is_url_escaped(fake_http):
 
 DC = JiraConfig(base_url="https://jira.internal", email=None, token="pat",
                 scope_jql="project = ABC", deployment="datacenter",
-                epic_link_field="customfield_10014")
+                epic_link_field="customfield_10014",
+                sprint_field="customfield_10020")
 
 
 def test_set_fix_version_uses_api_2_on_datacenter(fake_http):

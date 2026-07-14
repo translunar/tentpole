@@ -14,7 +14,8 @@ from tentpole.hygiene import Rule
 DC = JiraConfig(base_url="https://jira.internal", email=None, token="pat",
                 scope_jql="project = ABC", projects=("ABC",), board_id=7,
                 deployment="datacenter",
-                epic_link_field="customfield_10014")
+                epic_link_field="customfield_10014",
+                sprint_field="customfield_10020")
 CLOUD = JiraConfig(base_url="https://x.net", email="a@b.c", token="t",
                    scope_jql="project = ABC")
 CATS = {"To Do": "todo", "In Progress": "in_progress", "Done": "done"}

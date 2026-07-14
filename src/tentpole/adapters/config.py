@@ -48,7 +48,7 @@ class JiraConfig:
     scope_jql: str
     projects: tuple[str, ...] = ()
     board_id: int | None = None
-    sprint_field: str = "customfield_10020"
+    sprint_field: str | None = None
     hours_per_day: float = 8.0
     programs_file: str | None = None
     deployment: str = "cloud"
@@ -77,6 +77,18 @@ class JiraConfig:
                 "field. Find its id with GET /rest/api/2/field on your "
                 "instance (look for 'Epic Link'), e.g. "
                 "epic_link_field: customfield_10014")
+        if self.deployment == "datacenter" and not self.sprint_field:
+            raise ValueError(
+                "jira.sprint_field is required when deployment: "
+                "datacenter -- the Cloud default (customfield_10020) is "
+                "a Cloud-shaped custom-field id, and Jira silently "
+                "ignores unknown field ids in a `fields` request rather "
+                "than rejecting them, so every issue's sprint_id would "
+                "silently come back null instead of raising. Find its "
+                "id with GET /rest/api/2/field on your instance (look "
+                "for 'Sprint'), e.g. sprint_field: customfield_10104")
+        if not self.sprint_field:
+            object.__setattr__(self, "sprint_field", "customfield_10020")
 
 
 @dataclass(frozen=True)
@@ -130,7 +142,7 @@ def load_config(path: Path, env: dict | None = None) -> AdapterConfig:
             scope_jql=j["scope_jql"],
             projects=tuple(j.get("projects", [])),
             board_id=j.get("board_id"),
-            sprint_field=j.get("sprint_field", "customfield_10020"),
+            sprint_field=j.get("sprint_field"),
             hours_per_day=float(j.get("hours_per_day", 8.0)),
             programs_file=j.get("programs_file"),
             deployment=j.get("deployment", "cloud"),
