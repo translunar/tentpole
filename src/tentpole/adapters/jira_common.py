@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -29,6 +30,12 @@ BASE_FIELDS = ["summary", "issuetype", "status", "assignee",
 
 _CATEGORY = {"new": "todo", "indeterminate": "in_progress",
              "done": "done", "undefined": "todo"}
+
+# Legacy Server/DC serialization:
+# com.atlassian.greenhopper.service.sprint.Sprint@1a2b3c[id=123,...]
+# Field order varies across versions, so search for the id key itself.
+# Case-sensitive on purpose: it must not match `rapidViewId=7`.
+_LEGACY_SPRINT_ID = re.compile(r"\bid=(\d+)")
 
 
 def _status_category(key: str) -> str:
@@ -79,12 +86,28 @@ def _days(seconds, hours_per_day):
 
 
 def _sprint_id(value):
-    # The sprint custom field is a list of sprint objects; the last is
-    # the issue's current placement.
+    """The sprint custom field is a list; the last entry is the issue's
+    current placement. Modern Jira serializes each entry as an object;
+    older Server/DC serializes it as a
+    `...Sprint@1a2b3c[id=123,...]` toString() dump. Anything else
+    raises: returning None for an unrecognized non-empty value would
+    silently drop the sprint from every issue on the instance and make a
+    broken sync look healthy."""
     if not value:
         return None
     last = value[-1]
-    return last.get("id") if isinstance(last, dict) else None
+    if isinstance(last, dict):
+        return last.get("id")
+    if isinstance(last, str):
+        match = _LEGACY_SPRINT_ID.search(last)
+        if match:
+            return int(match.group(1))
+    raise ValueError(
+        f"unrecognized sprint custom-field value {last!r}: expected a "
+        f"sprint object with an 'id', or the legacy "
+        f"'...Sprint@...[id=123,...]' string form -- check that "
+        f"sprint_field names this instance's sprint custom field "
+        f"(GET /rest/api/2/field)")
 
 
 def _cycle_dates(changelog, categories):
