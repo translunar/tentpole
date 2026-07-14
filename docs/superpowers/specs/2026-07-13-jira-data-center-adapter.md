@@ -126,13 +126,15 @@ together, not one:
 2. `buckets.py` (`buckets_for`) — the coarse buckets' **date spans**:
    `plan+1` ends `anchor + 60 days` and `plan+2` ends `anchor + 120 days`,
    i.e. 6 × the default 10-day `sprint_length_days`. These spans feed
-   `deadline_risk` through `sprint_equivalents_until`, which converts
-   coarse-bucket days into sprint equivalents.
+   `deadline_risk` directly (it compares each issue's bucket end date to
+   the fixVersion release date) and `tentpole_runway` through
+   `sprint_equivalents_until`, which converts coarse-bucket days into
+   sprint equivalents.
 
 Configuring only the capacity scale would make the two checks
 disagree: with `sprints_per_plan: 4`, `team_subscription` would price a plan
-bucket at 4 sprints of capacity while `deadline_risk` still counted ~6
-sprint-equivalents across the unchanged 60-day window.
+bucket at 4 sprints of capacity while `deadline_risk` and `tentpole_runway`
+still treated the unchanged 60/120-day windows as the plan horizon.
 
 **Requirement — one derivation.** Add `sprints_per_plan: int = 6` to the
 core `Config` dataclass (the one exposed as `bundle.config`). Derive both
