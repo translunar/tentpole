@@ -36,6 +36,7 @@ pip install tentpole
 
    ```yaml
    jira:
+     deployment: cloud              # cloud (default) | datacenter
      base_url: https://yourco.atlassian.net
      email: you@yourco.com
      token_env_var: JIRA_TOKEN      # NAME of the env var holding the
@@ -58,6 +59,8 @@ pip install tentpole
        team: 777                    # human-owned roster sheet (optional)
    core:
      team: [ada, grace]
+     sprints_per_plan: 6            # how many sprints a plan+N bucket
+                                    # spans AND is priced at (default 6)
    ```
 
 2. Create the sheets: print `tentpole schema show` and build them by
@@ -123,6 +126,52 @@ Keep `core: team:` in `tentpole.yaml` even once the team sheet exists:
 `tentpole check` reads only the bundle and has no access to the team
 sheet (only `sync` reads state), so removing `core: team:` makes
 `check` treat the roster as empty.
+
+## Jira Data Center / Server
+
+Self-hosted Jira speaks a different REST dialect than Cloud. Set
+`deployment: datacenter` and tentpole switches adapters: Bearer personal
+access token instead of Basic `email:token`, `/rest/api/2` instead of
+`/rest/api/3`, `startAt`/`maxResults` offset paging instead of Cloud's
+`nextPageToken` cursor, and the epic key from a custom field instead of
+`parent`. The bundle it produces is identical, so everything downstream —
+`sync`, `check`, `push` — is unchanged. `tentpole fix apply` writes back to
+Data Center too: it uses the same `/rest/api/2` surface, and the epic-link
+fix writes the epic key into your `epic_link_field` rather than `parent`.
+
+```yaml
+jira:
+  deployment: datacenter
+  base_url: https://jira.internal.yourco.com
+  # email is not needed: Data Center authenticates with a Bearer PAT
+  token_env_var: JIRA_PAT
+  epic_link_field: customfield_10014   # required on datacenter
+  sprint_field: customfield_10104      # instance-specific too
+  scope_jql: project = ABC
+  projects: [ABC]
+  board_id: 42
+```
+
+**Custom-field ids are instance-specific.** `epic_link_field` (the Epic
+Link) and `sprint_field` differ between Jira instances and must never be
+guessed. Find them on your instance with:
+
+```sh
+curl -H "Authorization: Bearer $JIRA_PAT" \
+     https://jira.internal.yourco.com/rest/api/2/field
+```
+
+and look for the fields named "Epic Link" and "Sprint".
+
+**Smoke it before you trust it.** Recorded fixtures can drift from a live
+instance's shapes. Run one real `tentpole extract` against your instance and
+eyeball `bundle/issues.json` — every issue should carry the `epic_key` and
+`sprint_id` you expect — before wiring the adapter into a scheduled sync.
+
+This goes double for writes: `fix apply` prompts per proposal, so apply a
+single low-stakes `set_parent` fix by hand first and confirm in the Jira UI
+that the epic link actually moved. A wrong `epic_link_field` writes to the
+wrong custom field, and unlike a bad read, that one is visible to your team.
 
 ## Releasing
 
