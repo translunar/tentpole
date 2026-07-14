@@ -97,8 +97,9 @@ def _sprint_id(value):
         return None
     last = value[-1]
     if isinstance(last, dict):
-        return last.get("id")
-    if isinstance(last, str):
+        if "id" in last:
+            return last["id"]
+    elif isinstance(last, str):
         match = _LEGACY_SPRINT_ID.search(last)
         if match:
             return int(match.group(1))

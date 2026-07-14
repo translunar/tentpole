@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from tentpole.buckets import (
     bucket_for_date, bucket_for_issue, buckets_for, effective_deadline,
     sprint_equivalents_until,
@@ -112,3 +114,38 @@ def test_sprint_equivalents_at_plan_boundary_equals_sprints_per_plan(
     got = sprint_equivalents_until(plan1_end, bks,
                                    b.config.sprint_length_days)
     assert got == 10.0          # 6 near sprints + 4 plan sprints
+
+
+def test_sprints_per_plan_rejects_zero():
+    """0 inverts the plan+1/plan+2 date range (plan_days == 0 means
+    p1_end == anchor, and worse at negative values the range is
+    unmatchable), so every deadline-bucketed issue silently falls into
+    'beyond', which checks.team_subscription skips -- a broken sync that
+    looks healthy."""
+    with pytest.raises(ValueError, match="sprints_per_plan"):
+        Config(team=["a"], sprints_per_plan=0)
+
+
+def test_sprints_per_plan_rejects_negative():
+    with pytest.raises(ValueError, match="sprints_per_plan"):
+        Config(team=["a"], sprints_per_plan=-2)
+
+
+def test_sprints_per_plan_rejects_non_int():
+    """A quoted YAML scalar ("6") is an easy config mistake; it must fail
+    loudly here rather than surface as a bare TypeError deep in
+    buckets.py."""
+    with pytest.raises(ValueError, match="sprints_per_plan"):
+        Config(team=["a"], sprints_per_plan="6")
+
+
+def test_sprints_per_plan_rejects_bool():
+    """bool is a subclass of int in Python; True/False are not meaningful
+    sprint counts and must be rejected like any other non-int."""
+    with pytest.raises(ValueError, match="sprints_per_plan"):
+        Config(team=["a"], sprints_per_plan=True)
+
+
+def test_sprints_per_plan_accepts_default_and_valid_values():
+    assert Config(team=["a"]).sprints_per_plan == 6
+    assert Config(team=["a"], sprints_per_plan=4).sprints_per_plan == 4

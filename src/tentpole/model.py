@@ -84,6 +84,23 @@ class Config:
     )
     team: list[str] = field(default_factory=list)
 
+    def __post_init__(self):
+        # A silently-wrong sprints_per_plan produces a broken plan that
+        # looks healthy (see buckets.buckets_for): 0 or negative inverts
+        # the plan+1/plan+2 date range so every deadline-bucketed issue
+        # falls into 'beyond', which checks.team_subscription skips; a
+        # non-int (e.g. a quoted YAML scalar "6") raises a bare TypeError
+        # deep inside buckets.py instead of here. bool is a subclass of
+        # int but True/False is not a meaningful sprint count, so it is
+        # rejected too.
+        if (not isinstance(self.sprints_per_plan, int)
+                or isinstance(self.sprints_per_plan, bool)
+                or self.sprints_per_plan < 1):
+            raise ValueError(
+                f"sprints_per_plan must be a positive int, got "
+                f"{self.sprints_per_plan!r} -- set core.sprints_per_plan "
+                f"to a whole number of sprints (e.g. 6) in the config")
+
 
 @dataclass
 class Bundle:

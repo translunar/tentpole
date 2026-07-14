@@ -159,6 +159,17 @@ def test_external_linked_issues_stubbed_on_403(fake_http):
     assert fake_http.calls[1]["body"]["jql"] == "key in (Z-1)"
 
 
+def test_search_pages_raises_on_missing_total(fake_http):
+    """A response missing 'total' must not silently truncate the sync to
+    the first page: start >= page.get("total", 0) would treat start >= 0
+    as already-done and return only the issues seen so far, with no
+    error."""
+    fake_http.add("POST", "/rest/api/2/search",
+                  {"issues": [_raw("A-1")], "startAt": 0, "maxResults": 2})
+    with pytest.raises((ValueError, KeyError), match="total"):
+        fetch_issues(DC, CATS, {}, http=fake_http)
+
+
 def test_external_linked_issues_propagate_on_500(fake_http):
     """Only 403/404 may become a status-unknown stub. A 500 that already
     exhausted its retries is a real infrastructure failure -- silently

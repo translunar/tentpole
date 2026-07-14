@@ -64,7 +64,19 @@ def search_pages(cfg, jql, fields, *, expand=None, http=request):
         issues = page.get("issues", [])
         yield from issues
         start += len(issues)
-        if not issues or start >= page.get("total", 0):
+        if not issues:
+            return
+        if "total" not in page:
+            # A missing `total` would make start >= page.get("total", 0)
+            # true after the very first page, silently truncating the
+            # sync to it with no error -- the same "looks healthy but
+            # isn't" failure this codebase refuses to allow.
+            raise ValueError(
+                f"Data Center search response is missing 'total' "
+                f"(keys: {sorted(page)}) -- cannot page reliably; check "
+                f"that /rest/api/2/search on this instance/proxy returns "
+                f"a 'total' count")
+        if start >= page["total"]:
             return
 
 

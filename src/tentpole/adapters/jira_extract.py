@@ -14,8 +14,9 @@ from tentpole.adapters.jira_common import (      # noqa: F401  (re-exported)
     fetch_versions, headers, write_bundle,
 )
 
-# Re-exported under its historical name: adapters/jira_write.py and the
-# test suite import `_headers` from this module.
+# Re-exported under its historical name: jira_write now imports `headers`
+# from jira_common directly, but tests/test_adapter_config.py still
+# imports `_headers` from this module, so the alias is retained for it.
 _headers = headers
 
 

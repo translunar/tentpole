@@ -123,6 +123,20 @@ def test_dc_and_cloud_emit_identical_bundles(tmp_path, make_http):
     assert issues[1]["external"] is True
 
 
+def test_cloud_and_dc_request_the_same_fields():
+    """FakeHttp (conftest.FakeHttp) matches on method + URL substring and
+    ignores the request body entirely, so test_dc_and_cloud_emit_identical_
+    bundles's byte-equal bundles do NOT prove the two adapters asked Jira
+    for the same fields -- the canned responses hand back timetracking,
+    labels, fixVersions etc. regardless of what each adapter's _fields()
+    actually requested. Concretely: dropping "timetracking" from
+    jira_extract_dc._fields leaves the whole suite green, including the
+    byte-equality test, while a live Data Center instance would silently
+    lose every issue's estimate. This assertion closes that hole directly."""
+    assert (set(jira_extract._fields(CLOUD)) - {"parent"}
+            == set(jira_extract_dc._fields(DC)) - {"customfield_10014"})
+
+
 class _FakeUrlopenResponse:
     """Mimics what urllib.request.urlopen(...) hands urllib_transport."""
 

@@ -30,3 +30,16 @@ def test_sprint_id_unrecognized_shape_raises_actionable_error():
     with pytest.raises(ValueError,
                        match="unrecognized sprint custom-field value"):
         _sprint_id([12345])
+
+
+def test_sprint_id_dict_without_id_raises_actionable_error():
+    """A dict entry lacking an 'id' key must not silently become None --
+    that would strip the sprint from every issue while the extract stayed
+    green. It must fall through to the same actionable error as any other
+    unrecognized shape."""
+    with pytest.raises(ValueError,
+                       match="unrecognized sprint custom-field value"):
+        _sprint_id([{"name": "S5", "state": "ACTIVE"}])
+    with pytest.raises(ValueError,
+                       match="unrecognized sprint custom-field value"):
+        _sprint_id([{}])
