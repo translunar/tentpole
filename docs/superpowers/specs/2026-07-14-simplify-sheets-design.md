@@ -318,6 +318,24 @@ This cadence sets the automation/judgment split:
 - **Recommended planning-week loop:** extract → review the link report
   → fix links in Jira → re-extract → sync → push → polish in the sheet.
 
+### At the next planning boundary
+
+Re-planning is a diff, not a rebuild: persisting tickets update in
+place (row identity survives — sister-team links keep working), new
+work is added, out-of-scope rows are deleted, forecasts re-seed and the
+engine re-chains. Two consequences to know:
+
+- **Polish does not carry over.** Cells tentpole owns are re-drafted,
+  and an arrow deleted in the sheet returns if its blocks-link still
+  exists in Jira. Pruning meant to persist belongs in Jira; sheet
+  polish dresses one period's draft.
+- **The frozen plan of record is an archived copy.** The live sheet is
+  always the *current* plan. At planning close, archive a copy
+  (Save-as-New, named for the period); the copy is inert forever.
+  Period-over-period learning on the numbers is already automatic
+  (append-only snapshots; the accuracy sheet). A `tentpole archive`
+  command may automate the copy later — not 0.5.0 scope.
+
 ## 8. Prerequisite: pull-state keying
 
 `pull_sheet` keys state by primary-column value, so duplicate primaries
