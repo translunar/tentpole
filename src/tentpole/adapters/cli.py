@@ -48,6 +48,9 @@ def add_parsers(sub) -> None:
     boot_cmd = sub.add_parser(
         "bootstrap", help="create sheets from schemas (experimental)")
     boot_cmd.add_argument("--config", required=True, type=Path)
+    boot_cmd.add_argument(
+        "--sheets", default=None,
+        help="comma-separated subset to create (default: all known schemas)")
 
 
 def dispatch(args) -> int | None:
@@ -227,7 +230,9 @@ def _bootstrap(args) -> int:
     print("WARNING: bootstrap is not integration-tested against "
           "SmartsheetGov; the supported path is manual creation from "
           "`tentpole schema show`.")
-    created = smartsheet_load.bootstrap(cfg.smartsheet)
+    names = ([s.strip() for s in args.sheets.split(",") if s.strip()]
+             if args.sheets else None)
+    created = smartsheet_load.bootstrap(cfg.smartsheet, names=names)
     print("created sheets -- add to tentpole.yaml:")
     print("smartsheet:")
     print("  sheets:")

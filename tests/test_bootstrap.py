@@ -1,3 +1,5 @@
+import pytest
+
 from tentpole.adapters.config import SmartsheetConfig
 from tentpole.adapters.smartsheet_load import bootstrap
 from tentpole.schema import SCHEMAS
@@ -42,7 +44,7 @@ def test_cli_bootstrap_prints_config_snippet(tmp_path, monkeypatch,
     monkeypatch.setenv("S", "tok")
     import tentpole.adapters.cli as edge_cli
     monkeypatch.setattr(edge_cli.smartsheet_load, "bootstrap",
-                        lambda cfg: {"issues": 1000, "epics": 1001})
+                        lambda cfg, names=None: {"issues": 1000, "epics": 1001})
     from tentpole.cli import main
     code = main(["bootstrap",
                  "--config", str(tmp_path / "tentpole.yaml")])
@@ -50,3 +52,19 @@ def test_cli_bootstrap_prints_config_snippet(tmp_path, monkeypatch,
     assert code == 0
     assert "issues: 1000" in out and "epics: 1001" in out
     assert "SmartsheetGov" in out          # the not-integration-tested warning
+
+
+def test_bootstrap_subset_creates_only_named(fake_http):
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t")
+    for i, name in enumerate(["issues", "capacity"]):
+        fake_http.add("POST", "/sheets",
+                      {"result": {"id": 2000 + i, "name": f"tentpole {name}"}})
+    created = bootstrap(cfg, http=fake_http, names=["issues", "capacity"])
+    assert set(created) == {"issues", "capacity"}
+    assert len(fake_http.calls) == 2
+
+
+def test_bootstrap_subset_rejects_unknown_name(fake_http):
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t")
+    with pytest.raises(ValueError, match="mystery"):
+        bootstrap(cfg, http=fake_http, names=["issues", "mystery"])

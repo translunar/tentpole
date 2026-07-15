@@ -369,14 +369,22 @@ _COLUMN_TYPES = {"TEXT": "TEXT_NUMBER", "NUMBER": "TEXT_NUMBER",
                  "DATE": "DATE", "CHECKBOX": "CHECKBOX"}
 
 
-def bootstrap(cfg, http=request) -> dict[str, int]:
-    """Create all sheets from SCHEMAS. Lowest-priority path (spec
-    section 7): NOT integration-tested against SmartsheetGov; the
-    supported v1 path is manual creation from `tentpole schema show`."""
+def bootstrap(cfg, http=request, names=None) -> dict[str, int]:
+    """Create sheets from SCHEMAS (all, or the --sheets subset). Lowest-
+    priority path (spec §7): NOT integration-tested against SmartsheetGov;
+    the supported v1 path is manual creation from `tentpole schema show`."""
+    if names is None:
+        names = list(SCHEMAS)
+    unknown = [n for n in names if n not in SCHEMAS]
+    if unknown:
+        raise ValueError(
+            f"unknown sheet name(s) {unknown} for --sheets "
+            f"(known: {sorted(SCHEMAS)})")
     path = (f"/workspaces/{cfg.workspace_id}/sheets"
             if cfg.workspace_id else "/sheets")
     created = {}
-    for name, schema in SCHEMAS.items():
+    for name in names:
+        schema = SCHEMAS[name]
         columns = []
         for col in schema.columns:
             spec = {"title": col.name,
