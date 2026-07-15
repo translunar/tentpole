@@ -174,6 +174,102 @@ Keep `core: team:` in `tentpole.yaml` even once the people sheet exists:
 (only `sync` reads state), so removing `core: team:` makes `check` treat
 the roster as empty.
 
+## Planning cadence and the human loop
+
+tentpole is a planning-week instrument, run at period boundaries (the team
+plans every sixty days) and ad hoc — not a cron daemon. Estimates
+propagate to sister teams only at planning boundaries, so what they see is
+the plan of record, not a moving target.
+
+**Draft, then polish.** `push` produces a draft plan-of-record. During
+planning week, humans polish the sheet directly — delete an arrow the
+engine drew from a technically-true-but-unhelpful link, nudge a bar,
+annotate. Those edits persist for the whole period because nothing runs
+behind them. The next planning period regenerates the draft from fresh
+Jira and the polish ritual repeats: tentpole does the mechanical 95%;
+judgment is applied to a fresh draft each period, never maintained as
+overlay state.
+
+**Prune links in Jira, not in an overlay.** Extract surfaces link-hygiene
+findings — cycle members (naming the edge that would be dropped),
+blocks-links into done work, links to out-of-scope targets — so links get
+fixed at the source. There is deliberately no exclusions file (a second
+source of truth that drifts).
+
+**Recommended planning-week loop:** extract → review the link report →
+fix links in Jira → re-extract → sync → push → polish in the sheet.
+
+**At the next boundary**, re-planning is a diff, not a rebuild: persisting
+tickets update in place (row identity survives, so sister-team cell links
+keep working), new work is added, out-of-scope rows are deleted, forecasts
+re-seed, and the engine re-chains. Two consequences: polish does not carry
+over (an arrow you deleted returns if its Jira blocks-link still exists —
+pruning that should persist belongs in Jira), and **planning close is a
+two-click ritual: set a Smartsheet baseline, then Save-as-New an archive
+copy named for the period.** The baseline gives the live chart its
+ghost-bar memory; the archive is the inert frozen plan of record; the live
+sheet is always the current plan. (A `tentpole archive` command may
+automate the copy later — not 0.5.0 scope.)
+
+**Between-plan memory in the data** is automatic: snapshot records widen
+with `epic_key`/`program`, a ticket-level carryover check flags a ticket
+that was sprint-planned, isn't done, and is sprint-planned again across the
+last two runs, and the `First Planned` column dates each ticket's earliest
+sprinted run so chronic drifters sort to the top.
+
+## Gantt mode (experimental)
+
+Gantt mode is on when the `issues` sheet has Smartsheet **dependencies
+enabled** — there is no config key (consistent with existence-as-config).
+With dependencies off, the sheet behaves exactly as the epic-rollup issues
+sheet and the gantt columns are not required.
+
+When on, tentpole seeds five columns distinct from the factual
+`In Progress`/`Done` mirror dates — `Forecast Start`, `Forecast Finish`,
+`Duration`, `Predecessors`, `Flags` — and Smartsheet's engine chains the
+bars and draws the arrows. Facts and forecast coexist as separate columns;
+the engine never touches `In Progress`/`Done`. Engine-derived cells
+(forecast dates on predecessor'd rows, epic rollups) are pulled but never
+written and never diffed.
+
+Seeding by status: unstarted tickets with an included incoming arrow get
+`Duration` + `Predecessors` (the engine chains their start); roots get
+`Forecast Start` + `Duration`; started tickets anchor at their actual start
+with incoming arrows dropped; done tickets bar from actuals. An edge
+becomes an arrow only if it is a Jira blocks-link between two in-scope,
+non-done tickets whose target has not started and it survived deterministic
+cycle-breaking (highest-sorted edge dropped, named in both rows' `Flags`).
+External/cross-team edges render as `Flags` text. Missing estimates default
+to 1d with a flag. Unreleased fixVersions become synthetic zero-duration
+`milestone:<version>` diamond rows.
+
+Between-plan memory on the chart comes from **Smartsheet baselines** set at
+planning close, not from stretching bars.
+
+**One-time UI setup (the API cannot do it):** enable dependencies on the
+sheet and designate `Forecast Start`/`Forecast Finish` as the project
+start/end date columns. `push` pre-flights this and refuses with an
+actionable error if a gantt column is missing or the pair is not
+designated.
+
+**Smoke before you trust it.** Workspace discovery, `bootstrap --sheets`,
+and especially the gantt dependency-toggle detection, the designated-column
+pre-flight, and the predecessor cell encoding are shape-sensitive and
+unverified against SmartsheetGov. Run one real `pull`/`push` cycle on a
+throwaway sheet and confirm the arrows, milestones, and baseline behave
+before wiring gantt mode into your planning loop.
+
+### Inter-team linkage
+
+Sister teams reference the mirror `issues` sheet, whose change plan updates
+rows in place — a row's identity survives every sync, so cell links and
+formulas pointing at it keep working across planning periods. The sturdiest
+pattern: cross-sheet formulas keyed on the `Key` column (INDEX/MATCH
+against `issues`), which survive even a row's delete-and-recreate. Inbound
+dependency detail stays on the opt-in `dependencies` sheet; estimates
+propagate outward only at planning boundaries, so sister teams always see
+the plan of record.
+
 ## Jira Data Center / Server
 
 Self-hosted Jira speaks a different REST dialect than Cloud. Set
