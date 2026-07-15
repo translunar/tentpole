@@ -638,14 +638,47 @@ def test_encode_predecessors_documented_shape():
 
 
 def test_write_never_engine_dates_produce_zero_updates():
+    """Real proof, not a tautology: the spec seeds a synced gantt field
+    (Duration) that DIFFERS from current, so it must be diffed and
+    written. The spec OMITS Forecast Start entirely even though current
+    holds an engine-computed value that differs from nothing in the spec
+    -- write-never means that omitted cell must never appear in the
+    resulting update's cells, no matter how it differs from current."""
     from tentpole.changeplan import plan_changes
     from tentpole.sheets import SheetSpec, Row
     from tentpole.schema import SCHEMAS
-    spec_cells = {"Key": "T-1", "In Jira": True, "Duration": 3.0,
-                  "Predecessors": "B-1"}   # NO Forecast Start (write-never)
+    spec_cells = {"Key": "T-1", "In Jira": True,
+                  "Duration": 3.0}   # NO Forecast Start (write-never)
     spec = SheetSpec("issues", [Row("T-1", spec_cells)])
-    current = {"Key": "T-1", "In Jira": True, "Duration": 3.0,
-               "Predecessors": "B-1", "Forecast Start": "2026-08-15"}
+    current = {"Key": "T-1", "In Jira": True, "Duration": 2.0,
+               "Forecast Start": "2026-08-15"}   # engine-computed date
     changes = plan_changes(spec, {"T-1": current}, SCHEMAS["issues"],
                            gantt=True)
+    assert len(changes) == 1
+    update = changes[0]
+    assert update.op == "update" and update.key == "T-1"
+    # The differing seeded gantt field IS diffed.
+    assert update.cells["Duration"] == 3.0
+    # The omitted seed cell is NEVER diffed, even though it differs from
+    # current's engine-filled value.
+    assert "Forecast Start" not in update.cells
+
+
+def test_gantt_columns_do_not_diff_when_gantt_off():
+    """Negative control for the above: with gantt=False, Duration is
+    excluded from schema.synced_names(gantt=False), so the same spec's
+    Duration difference must not be diffed at all -- gantt columns are
+    inert when gantt mode is off."""
+    from tentpole.changeplan import plan_changes
+    from tentpole.sheets import SheetSpec, Row
+    from tentpole.schema import SCHEMAS
+    spec_cells = {"Key": "T-1", "In Jira": True,
+                  "Duration": 3.0}   # NO Forecast Start
+    spec = SheetSpec("issues", [Row("T-1", spec_cells)])
+    current = {"Key": "T-1", "In Jira": True, "Duration": 2.0,
+               "Forecast Start": "2026-08-15"}
+    changes = plan_changes(spec, {"T-1": current}, SCHEMAS["issues"],
+                           gantt=False)
+    # Key and In Jira match current, and Duration is excluded from the
+    # diff entirely when gantt=False -- nothing left to update.
     assert changes == []
