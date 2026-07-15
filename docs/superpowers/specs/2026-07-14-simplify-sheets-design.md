@@ -278,6 +278,18 @@ design vocabulary for the PMO's imposed formats, but gantt no longer
 needs it: rows update in place, so cross-sheet references into issues
 stay safe.
 
+### Inter-team linkage contract
+
+Sister teams reference **mirror sheets**, whose change plan updates
+rows in place — a row's identity survives every sync, so cell links and
+formulas pointing at it keep working across planning periods. The
+sturdiest pattern, documented in the README: cross-sheet formulas keyed
+on the `Key` column (INDEX/MATCH against `issues`), which survive even
+a row's delete-and-recreate. Inbound dependency detail (their status,
+their sprint) stays on the opt-in `dependencies` sheet; estimates
+propagate outward only at planning boundaries (§7), so what sister
+teams see is the plan of record, not a moving target.
+
 ## 7. Cadence and the human loop
 
 A load-bearing fact: **the team plans every sixty days.** tentpole is a
