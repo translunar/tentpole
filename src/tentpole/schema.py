@@ -48,6 +48,7 @@ SCHEMAS: dict[str, SheetSchema] = {
         ColumnDef("Open Tickets", "NUMBER"),
         ColumnDef("Remaining Days", "NUMBER"),
         ColumnDef("People"), ColumnDef("Runway"),
+        ColumnDef("First Planned", "DATE"),
         ColumnDef("In Progress", "DATE"), ColumnDef("Done", "DATE"),
         ColumnDef("In Jira", "CHECKBOX"),
     )),

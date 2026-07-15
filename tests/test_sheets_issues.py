@@ -90,3 +90,18 @@ def test_issues_sheet_epic_rows_carry_rollups(make_bundle):
     assert t["Runway"] == ""
     # ticket-level Remaining Est is unaffected by the rollup
     assert t["Remaining Est"] == 60.0
+
+
+def test_issues_sheet_first_planned_from_snapshots(make_bundle):
+    prior = [
+        {"run": "2026-03-01", "key": "T-1", "sprint_id": None},  # not planned
+        {"run": "2026-04-01", "key": "T-1", "sprint_id": 2},     # earliest planned
+        {"run": "2026-05-01", "key": "T-1", "sprint_id": 2},
+        {"run": "2026-04-01", "key": "T-9", "sprint_id": 1},     # not in bundle
+    ]
+    b = make_bundle(issues=[_task("T-1", sprint_id=1),
+                            _task("T-2", sprint_id=1)])   # T-2 has no history
+    spec = issues_sheet(b, assemble(b), prior_snapshots=prior)
+    rows = {r.key: r for r in spec.rows}
+    assert rows["T-1"].cells["First Planned"] == "2026-04-01"
+    assert rows["T-2"].cells["First Planned"] is None

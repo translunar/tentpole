@@ -42,6 +42,7 @@ COLS = {"columns": [
     {"id": 36, "title": "Remaining Days"},
     {"id": 37, "title": "People"},
     {"id": 38, "title": "Runway"},
+    {"id": 39, "title": "First Planned"},
 ]}
 
 

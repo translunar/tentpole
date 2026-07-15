@@ -33,7 +33,23 @@ def _links(issue: Issue, direction: str) -> str:
         if l.type == "Blocks" and l.direction == direction))
 
 
-def issues_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
+def _first_planned(prior_snapshots: list[dict] | None) -> dict[str, str]:
+    # Earliest PRIOR snapshot run in which each ticket had a sprint (spec §7).
+    # Blank (absent from the map) when there is no history -- the current run
+    # is not yet snapshotted at sheet-build time, so a ticket first planned
+    # this period shows blank now and dates itself next period.
+    earliest: dict[str, str] = {}
+    for r in (prior_snapshots or []):
+        if r.get("sprint_id") is None:
+            continue
+        key, run = r["key"], r["run"]
+        if key not in earliest or run < earliest[key]:
+            earliest[key] = run
+    return earliest
+
+
+def issues_sheet(bundle: Bundle, diag: dict,
+                 prior_snapshots: list[dict] | None = None) -> SheetSpec:
     hygiene: dict[str, list[str]] = {}
     for fl in diag["hygiene"]:
         hygiene.setdefault(fl.key, []).append(f"{fl.severity}:{fl.rule}")
@@ -41,6 +57,7 @@ def issues_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
     at_risk = {f.subject for f in diag["findings"]
                if f.check == "tentpole_runway"}
     open_work = _open_work(bundle)
+    first_planned = _first_planned(prior_snapshots)
 
     def rollups_for(issue: Issue) -> dict:
         # Populated only on epic rows; blank on tickets (spec §5). Remaining
@@ -79,6 +96,7 @@ def issues_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
             "In Progress": _iso(issue.first_in_progress),
             "Done": _iso(issue.done_at),
             "In Jira": True,
+            "First Planned": first_planned.get(issue.key),
         }
         cells.update(rollups_for(issue))
         return cells
@@ -192,9 +210,11 @@ def accuracy_sheet(bundle: Bundle) -> SheetSpec:
     return SheetSpec("accuracy", rows)
 
 
-def build_sheetspecs(bundle: Bundle, diag: dict) -> dict[str, SheetSpec]:
+def build_sheetspecs(bundle: Bundle, diag: dict,
+                     prior_snapshots: list[dict] | None = None
+                     ) -> dict[str, SheetSpec]:
     return {
-        "issues": issues_sheet(bundle, diag),
+        "issues": issues_sheet(bundle, diag, prior_snapshots),
         "fixversions": fixversions_sheet(bundle, diag),
         "dependencies": dependencies_sheet(bundle),
         "capacity": capacity_sheet(diag),
