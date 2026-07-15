@@ -90,15 +90,11 @@ SCHEMAS: dict[str, SheetSchema] = {
         ColumnDef("Target"), ColumnDef("Intended Epic"),
         ColumnDef("Jira Key"),
     ),
-    "exceptions": _human(
-        "exceptions",
-        ColumnDef("Cell", primary=True),
-        ColumnDef("Person"), ColumnDef("Sprint", "NUMBER"),
-        ColumnDef("Day Cost", "NUMBER"),
-    ),
-    "team": _human(
-        "team",
-        ColumnDef("Person", primary=True),
+    "people": _human(
+        "people",
+        ColumnDef("Item", primary=True),
+        ColumnDef("Sprint", "NUMBER"),
+        ColumnDef("Days", "NUMBER"),
         ColumnDef("Notes"),
     ),
 }

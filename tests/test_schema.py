@@ -3,11 +3,12 @@ from tentpole.schema import SCHEMAS, render_schemas
 
 def test_registry_has_all_sheets_with_ownership():
     assert set(SCHEMAS) == {"issues", "epics", "fixversions", "dependencies",
-                            "capacity", "accuracy", "future_work", "exceptions", "team"}
+                            "capacity", "accuracy", "future_work", "people"}
     assert SCHEMAS["issues"].owned == "machine"
     assert SCHEMAS["future_work"].owned == "human"
-    assert SCHEMAS["exceptions"].owned == "human"
-    assert SCHEMAS["team"].owned == "human"
+    assert SCHEMAS["people"].owned == "human"
+    assert "team" not in SCHEMAS          # replaced by people (spec §3)
+    assert "exceptions" not in SCHEMAS
 
 
 def test_every_schema_has_exactly_one_primary():
@@ -19,8 +20,7 @@ def test_every_schema_has_exactly_one_primary():
 
 def test_human_sheets_have_no_synced_columns():
     assert SCHEMAS["future_work"].synced_names() == []
-    assert SCHEMAS["exceptions"].synced_names() == []
-    assert SCHEMAS["team"].synced_names() == []
+    assert SCHEMAS["people"].synced_names() == []
     assert "Key" in SCHEMAS["issues"].synced_names()
 
 
