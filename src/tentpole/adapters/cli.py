@@ -116,8 +116,24 @@ def _pull(args) -> int:
     cfg = load_config(args.config)
     if cfg.smartsheet is None:
         raise SystemExit("config has no smartsheet: section")
-    pulled = smartsheet_load.pull_state(cfg.smartsheet, args.state)
-    print(f"pulled {len(pulled)} sheet(s): {', '.join(pulled)}")
+    try:
+        report = smartsheet_load.pull_state(cfg.smartsheet, args.state)
+    except ValueError as err:
+        # An ambiguous workspace name or an unknown smartsheet.sheets key
+        # (spec §2/§8) -- print it and drive a nonzero exit.
+        print(f"ERROR: {err}")
+        return 1
+    for name in sorted(report):
+        r = report[name]
+        if r["state"] == "SYNCED":
+            print(f"{name}: SYNCED sheet {r['sheet_id']}")
+        elif r["owned"] == "human":
+            fallback = ("roster falls back to yaml" if name == "people"
+                        else "treated as absent" if name == "future_work"
+                        else "falls back to config")
+            print(f"{name}: OFF -- no sheet in workspace; {fallback}")
+        else:
+            print(f"{name}: OFF -- no sheet in workspace")
     return 0
 
 
@@ -129,24 +145,28 @@ def _push(args) -> int:
         report = smartsheet_load.push_plans(cfg.smartsheet, args.plans,
                                             args.state)
     except ValueError as err:
-        # e.g. a sheet is missing a column the schema requires -- print
-        # it and drive a nonzero exit rather than let a bare traceback
-        # be the only signal (spec section 8: a silently failing sync
-        # must be impossible).
+        # A missing column, an ambiguous workspace name, or an unmet
+        # expect: -- print it and drive a nonzero exit (spec §8: a
+        # silently failing sync must be impossible).
         print(f"ERROR: {err}")
         return 1
     failed = 0
+    # Enumerate EVERY known schema and its resolution every run (spec §2):
+    # a renamed/deleted sheet flips to OFF here, never fails silently.
     for name in sorted(report):
         r = report[name]
-        line = (f"{name}: +{r['added']} ~{r['updated']} "
-                f"-{r['removed']}")
+        if r["state"] == "OFF":
+            print(f"{name}: OFF (no explicit id, no sheet named {name!r} "
+                  f"in the workspace)")
+            continue
+        line = (f"{name}: SYNCED sheet {r['sheet_id']}  "
+                f"+{r['added']} ~{r['updated']} -{r['removed']}")
         if r["failed"]:
             line += f"  FAILED {len(r['failed'])}"
         print(line)
         for f in r["failed"]:
             print(f"  {f['op']} {f['key']}: {f['error']}")
         failed += len(r["failed"])
-    # Spec section 8: a silently failing sync must be impossible.
     return 1 if failed else 0
 
 

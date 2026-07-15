@@ -22,6 +22,47 @@ def _call(cfg, method, path, *, params=None, body=None, http=request):
                 params=params, body=body)
 
 
+def _workspace_sheets(cfg, http=request) -> dict[str, list[int]]:
+    # GET /workspaces/{id} -> {"sheets": [{"id", "name"}, ...]}. Shape is
+    # UNVERIFIED against SmartsheetGov; smoke before trusting (spec §2, §11).
+    if cfg.workspace_id is None:
+        return {}
+    data = _call(cfg, "GET", f"/workspaces/{cfg.workspace_id}", http=http)
+    out: dict[str, list[int]] = {}
+    for sh in data.get("sheets", []):
+        out.setdefault(sh["name"], []).append(sh["id"])
+    return out
+
+
+def resolve_sheets(cfg, http=request) -> dict[str, int | None]:
+    # Spec §2 resolution order, per schema name: explicit id wins; else a
+    # workspace sheet whose name equals the schema name exactly; else OFF.
+    # Preserve the unknown-explicit-key guard here (moved out of pull_state)
+    # so both push and pull inherit it: a typo'd key under smartsheet.sheets
+    # (a sheet id pointing nowhere) must fail loud, not silently do nothing.
+    unknown = [name for name in cfg.sheets if name not in SCHEMAS]
+    if unknown:
+        raise ValueError(
+            f"unknown sheet name(s) {sorted(unknown)} under "
+            f"smartsheet.sheets (known schemas: {sorted(SCHEMAS)}) -- a "
+            f"typo'd explicit id would otherwise resolve to nothing silently")
+    ws = _workspace_sheets(cfg, http=http)
+    resolved: dict[str, int | None] = {}
+    for name in SCHEMAS:
+        if name in cfg.sheets:
+            resolved[name] = cfg.sheets[name]
+            continue
+        ids = ws.get(name, [])
+        if len(ids) > 1:
+            raise ValueError(
+                f"workspace {cfg.workspace_id} has {len(ids)} sheets named "
+                f"{name!r} (ids {sorted(ids)}); exact-name matching cannot "
+                f"choose -- rename all but one, or pin the id under "
+                f"smartsheet.sheets.{name}")
+        resolved[name] = ids[0] if ids else None
+    return resolved
+
+
 def pull_sheet(cfg, sheet_id: int, http=request, *, sheet_name=None,
                human: bool = False) -> dict[str, dict]:
     data = _call(cfg, "GET", f"/sheets/{sheet_id}", http=http)
@@ -70,22 +111,26 @@ def pull_sheet(cfg, sheet_id: int, http=request, *, sheet_name=None,
     return state
 
 
-def pull_state(cfg, state_dir: Path, http=request) -> list[str]:
+def pull_state(cfg, state_dir: Path, http=request) -> dict[str, dict]:
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
-    pulled = []
-    for name in sorted(cfg.sheets):
-        if name not in SCHEMAS:
-            raise ValueError(
-                f"unknown sheet {name!r} in config "
-                f"(known: {sorted(SCHEMAS)})")
-        state = pull_sheet(cfg, cfg.sheets[name], http=http,
-                           sheet_name=name,
-                           human=SCHEMAS[name].owned == "human")
-        (state_dir / f"{name}.json").write_text(
-            json.dumps(state, indent=2))
-        pulled.append(name)
-    return pulled
+    resolved = resolve_sheets(cfg, http=http)   # inherits the unknown-key guard
+    report: dict[str, dict] = {}
+    for name in sorted(SCHEMAS):
+        owned = SCHEMAS[name].owned
+        sheet_id = resolved.get(name)
+        if sheet_id is None:
+            # OFF human sheet falls back exactly as an absent state file:
+            # people -> yaml, future_work -> none (spec §2). We simply do not
+            # write a state file, so cli's _state(name) returns None.
+            report[name] = {"state": "OFF", "sheet_id": None, "owned": owned}
+            continue
+        state = pull_sheet(cfg, sheet_id, http=http, sheet_name=name,
+                           human=owned == "human")
+        (state_dir / f"{name}.json").write_text(json.dumps(state, indent=2))
+        report[name] = {"state": "SYNCED", "sheet_id": sheet_id,
+                        "owned": owned}
+    return report
 
 
 def _column_ids(cfg, sheet_id, http=request) -> dict[str, int]:
@@ -258,51 +303,65 @@ def push_plan(cfg, sheet_id: int, changes: list[dict],
 def push_plans(cfg, plans_dir: Path, state_dir: Path,
                http=request) -> dict[str, dict]:
     plans_dir, state_dir = Path(plans_dir), Path(state_dir)
-    report = {}
+    resolved = resolve_sheets(cfg, http=http)
+
+    # Expect (spec §2): any expected schema that resolved OFF is a hard
+    # error, and the message names the sheets actually present so a
+    # rename/typo is diagnosable from the message alone.
+    missing = [name for name in cfg.expect if resolved.get(name) is None]
+    if missing:
+        present = sorted(_workspace_sheets(cfg, http=http))
+        raise ValueError(
+            f"expected sheet(s) {missing} did not resolve (no explicit id and "
+            f"no exact-name match in workspace {cfg.workspace_id}). Sheets "
+            f"present in the workspace: {present or '(none)'}. Fix the name or "
+            f"drop it from smartsheet.expect.")
+
+    report: dict[str, dict] = {}
     targets = []
-    # Iterate the plans `sync` actually produced (one per machine sheet),
-    # not cfg.sheets: a machine sheet missing from tentpole.yaml must be
-    # reported as skipped, not silently dropped (spec: a silently failing
-    # sync must be impossible).
     for name, schema in SCHEMAS.items():
         if schema.owned != "machine":
             continue
         plan_path = plans_dir / f"{name}.json"
+        sheet_id = resolved.get(name)
+        if sheet_id is None:
+            # OFF is a normal state (spec §2): printed every run, exit 0.
+            report[name] = {"state": "OFF", "sheet_id": None,
+                            "added": 0, "updated": 0, "removed": 0,
+                            "failed": []}
+            continue
         if not plan_path.exists():
+            # Resolved but sync produced no plan (rare); nothing to do.
+            report[name] = {"state": "SYNCED", "sheet_id": sheet_id,
+                            "added": 0, "updated": 0, "removed": 0,
+                            "failed": []}
             continue
-        if name not in cfg.sheets:
-            report[name] = {
-                "added": 0, "updated": 0, "removed": 0,
-                "failed": [{
-                    "op": "push", "key": name,
-                    "error": f"SKIPPED (no sheet id configured for "
-                             f"{name!r} in tentpole.yaml)"}]}
-            continue
-        targets.append((name, schema, plan_path))
+        targets.append((name, schema, plan_path, sheet_id))
 
-    # Pre-flight EVERY target sheet's columns before the first write: a
-    # schema mismatch discovered mid-loop would abort push after earlier
-    # sheets were already written, discarding the partial report and
-    # leaving a re-run against a stale state dir to double-apply adds.
+    # Pre-flight EVERY target sheet's columns before the first write (a
+    # mid-loop mismatch would leave earlier sheets written and the report
+    # discarded).
     col_ids_by_name = {}
     problems = []
-    for name, schema, _ in targets:
-        col_ids = _column_ids(cfg, cfg.sheets[name], http=http)
-        problem = _validate_columns(schema, cfg.sheets[name], col_ids)
+    for name, schema, _plan, sheet_id in targets:
+        col_ids = _column_ids(cfg, sheet_id, http=http)
+        problem = _validate_columns(schema, sheet_id, col_ids)
         if problem:
             problems.append(problem)
         col_ids_by_name[name] = col_ids
     if problems:
         raise ValueError("\n".join(problems))
 
-    for name, schema, plan_path in targets:
+    for name, schema, plan_path, sheet_id in targets:
         changes = json.loads(plan_path.read_text())
         state_path = state_dir / f"{name}.json"
         state = (json.loads(state_path.read_text())
                  if state_path.exists() else {})
-        report[name] = push_plan(cfg, cfg.sheets[name], changes, state,
-                                 schema, http=http,
-                                 col_ids=col_ids_by_name[name])
+        r = push_plan(cfg, sheet_id, changes, state, schema, http=http,
+                      col_ids=col_ids_by_name[name])
+        r["state"] = "SYNCED"
+        r["sheet_id"] = sheet_id
+        report[name] = r
     return report
 
 

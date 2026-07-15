@@ -147,7 +147,8 @@ def test_cli_push_exits_nonzero_on_failures(tmp_path, monkeypatch,
     import tentpole.adapters.cli as edge_cli
 
     def fake_push_plans(cfg, plans, state):
-        return {"issues": {"added": 0, "updated": 1, "removed": 0,
+        return {"issues": {"state": "SYNCED", "sheet_id": 1,
+                           "added": 0, "updated": 1, "removed": 0,
                            "failed": [{"op": "add", "key": "A-1",
                                        "error": "boom"}]}}
     monkeypatch.setattr(edge_cli.smartsheet_load, "push_plans",
@@ -385,55 +386,46 @@ def test_cli_push_missing_column_exits_nonzero(tmp_path, monkeypatch,
     assert "Remaining Est" in out
 
 
-def test_push_plans_skips_sheet_without_configured_id(tmp_path, fake_http):
-    """REVIEW FINDING 2: `sync` writes a plan for every machine sheet,
-    but a sheet absent from tentpole.yaml's `sheets:` (e.g. the
-    README Quickstart config, which lists only "issues" and "epics")
-    must not have its plan silently dropped -- it must show up in the
-    report as an explicit failure naming the sheet."""
+def test_push_plans_reports_off_for_unresolved_sheet(tmp_path, fake_http):
+    # A machine schema with no explicit id and no workspace match resolves
+    # OFF -- a normal state printed every run (spec §2), not a failure.
     cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
-                           sheets={"issues": 111})   # "epics" absent
+                           sheets={"issues": 111})   # no workspace, no fixversions
     plans_dir = tmp_path / "plans"
     state_dir = tmp_path / "state"
     plans_dir.mkdir()
     state_dir.mkdir()
     (plans_dir / "issues.json").write_text("[]")
-    (plans_dir / "epics.json").write_text(json.dumps([
-        {"op": "add", "key": "E-1", "cells": {"Summary": "e"},
+    (plans_dir / "fixversions.json").write_text(json.dumps([
+        {"op": "add", "key": "v1", "cells": {"Version": "v1"},
          "parent_key": None}]))
     fake_http.add("GET", "/sheets/111", COLS)
     report = push_plans(cfg, plans_dir, state_dir, http=fake_http)
-    assert "epics" in report
-    assert report["epics"]["failed"]
-    error = report["epics"]["failed"][0]["error"]
-    assert "SKIPPED" in error and "epics" in error
+    assert report["issues"]["state"] == "SYNCED"
+    assert report["fixversions"]["state"] == "OFF"
+    assert report["fixversions"]["failed"] == []
 
 
-def test_cli_push_missing_sheet_id_exits_nonzero(tmp_path, monkeypatch,
-                                                 capsys):
-    """REVIEW FINDING 2, CLI-level: a plan for a sheet with no
-    configured id must reach the real `tentpole push` exit code, not
-    just an intermediate report dict."""
+def test_cli_push_off_sheet_exits_zero_and_enumerates(tmp_path, monkeypatch,
+                                                      capsys):
+    # OFF is exit 0 (spec §2): the old SKIPPED+exit-1 behavior is removed.
     (tmp_path / "tentpole.yaml").write_text(
         "smartsheet:\n  token_env_var: S\n  sheets:\n    issues: 1\n")
     monkeypatch.setenv("S", "tok")
-
     plans_dir = tmp_path / "plans"
     state_dir = tmp_path / "state"
     plans_dir.mkdir()
     state_dir.mkdir()
     (plans_dir / "issues.json").write_text("[]")
-    (plans_dir / "epics.json").write_text("[]")
-
+    (plans_dir / "fixversions.json").write_text("[]")
     routes = [("GET", "/sheets/1", COLS)]
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
-
     code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
                  "--plans", str(plans_dir), "--state", str(state_dir)])
     out = capsys.readouterr().out
-    assert code == 1
-    assert "epics" in out
-    assert "SKIPPED" in out
+    assert code == 0
+    assert "fixversions: OFF" in out
+    assert "issues: SYNCED" in out
 
 
 def _cols_for(name, drop=None):
@@ -467,6 +459,82 @@ def test_preflight_validates_every_sheet_before_first_write(
     with pytest.raises(ValueError, match="Runway"):
         push_plans(cfg, plans, tmp_path / "state", http=fake_http)
     assert all(c["method"] == "GET" for c in fake_http.calls)
+
+
+# Documented (unverified) shape of GET /workspaces/{id}. The gantt/predecessor
+# and this listing shape get a SmartsheetGov smoke before the README drops the
+# experimental label (spec §2, §11).
+WORKSPACE = {"id": 999, "name": "Planning", "sheets": [
+    {"id": 1234, "name": "issues"},
+    {"id": 5678, "name": "capacity"},
+    {"id": 4321, "name": "dashboard"},        # not a schema name -> ignored
+]}
+
+
+def test_resolve_explicit_id_beats_discovery(fake_http):
+    from tentpole.adapters.smartsheet_load import resolve_sheets
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           sheets={"issues": 111}, workspace_id=999)
+    fake_http.add("GET", "/workspaces/999", WORKSPACE)
+    resolved = resolve_sheets(cfg, http=fake_http)
+    assert resolved["issues"] == 111          # explicit id wins over 1234
+    assert resolved["capacity"] == 5678       # discovered by name
+    assert resolved["fixversions"] is None    # OFF
+
+
+def test_resolve_no_workspace_no_sheets_all_off(fake_http):
+    from tentpole.adapters.smartsheet_load import resolve_sheets
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t")
+    resolved = resolve_sheets(cfg, http=fake_http)     # no HTTP call at all
+    assert set(resolved) == set(SCHEMAS)
+    assert all(v is None for v in resolved.values())
+    assert fake_http.calls == []
+
+
+def test_resolve_ambiguous_duplicate_name_raises(fake_http):
+    from tentpole.adapters.smartsheet_load import resolve_sheets
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           workspace_id=999)
+    ws = {"sheets": [{"id": 1, "name": "issues"},
+                     {"id": 2, "name": "issues"}]}
+    fake_http.add("GET", "/workspaces/999", ws)
+    with pytest.raises(ValueError, match="issues"):
+        resolve_sheets(cfg, http=fake_http)
+
+
+def test_resolve_sheets_rejects_unknown_explicit_key(fake_http):
+    # The unknown-explicit-key guard (preserved from pull_state, spec §2/§8):
+    # a typo'd key under smartsheet.sheets must raise before any HTTP.
+    from tentpole.adapters.smartsheet_load import resolve_sheets
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           sheets={"mystery": 5})
+    with pytest.raises(ValueError, match="mystery"):
+        resolve_sheets(cfg, http=fake_http)
+    assert fake_http.calls == []          # raised before touching the network
+
+
+def test_cli_push_expect_miss_exits_nonzero_with_present_names(
+        tmp_path, monkeypatch, capsys):
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env_var: S\n  workspace_id: 999\n"
+        "  expect: [capacity]\n")
+    monkeypatch.setenv("S", "tok")
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text("[]")
+    # Workspace has issues but NOT capacity -> expect miss.
+    ws = {"sheets": [{"id": 1234, "name": "issues"}]}
+    routes = [("GET", "/workspaces/999", ws)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(plans_dir), "--state", str(state_dir)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "ERROR:" in out
+    assert "capacity" in out
+    assert "issues" in out          # names the sheets actually present
 
 
 def test_update_with_cells_and_reparent_rides_both_waves(fake_http):

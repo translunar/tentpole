@@ -44,8 +44,9 @@ def test_pull_sheet_maps_titles_values_and_hierarchy(fake_http):
 
 def test_pull_state_writes_files(tmp_path, fake_http):
     fake_http.add("GET", "/sheets/111", SHEET)
-    pulled = pull_state(CFG, tmp_path, http=fake_http)
-    assert pulled == ["issues"]
+    report = pull_state(CFG, tmp_path, http=fake_http)
+    assert report["issues"]["state"] == "SYNCED"
+    assert report["issues"]["sheet_id"] == 111
     on_disk = json.loads((tmp_path / "issues.json").read_text())
     assert on_disk["T-1"]["_parent"] == "E-1"
 
@@ -161,6 +162,44 @@ def test_pull_sheet_machine_keys_stay_bare_and_byte_identical(fake_http):
     state = pull_sheet(CFG, 111, http=fake_http)
     assert set(state) == {"E-1", "T-1"}          # NOT "E-1|T-1"
     assert state["T-1"]["_parent"] == "E-1"
+
+
+def test_pull_state_discovers_by_name_and_skips_off(tmp_path, fake_http):
+    from tentpole.adapters.smartsheet_load import pull_state
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           workspace_id=999)
+    ws = {"sheets": [{"id": 111, "name": "issues"}]}   # only issues present
+    fake_http.add("GET", "/workspaces/999", ws)
+    fake_http.add("GET", "/sheets/111", SHEET)
+    report = pull_state(cfg, tmp_path, http=fake_http)
+    assert report["issues"]["state"] == "SYNCED"
+    assert report["people"]["state"] == "OFF"          # discovered nothing
+    assert (tmp_path / "issues.json").exists()
+    # OFF human sheets (people, future_work) wrote no state file -> cli
+    # falls back to yaml / none.
+    assert not (tmp_path / "people.json").exists()
+
+
+def test_cli_pull_enumerates_off_schemas(tmp_path, monkeypatch, capsys):
+    # Spec §2: `pull` prints one line per known schema. A human sheet that
+    # goes OFF must say so (it silently switches to the yaml fallback).
+    monkeypatch.setenv("SS_TOKEN", "secret-token")
+    config_path = tmp_path / "tentpole.yaml"
+    config_path.write_text(
+        "smartsheet:\n"
+        "  base_url: https://api.smartsheetgov.com/2.0\n"
+        "  token_env_var: SS_TOKEN\n"
+        "  workspace_id: 999\n")
+    ws = {"sheets": [{"id": 111, "name": "issues"}]}   # only issues present
+    routes = [("GET", "/workspaces/999", ws), ("GET", "/sheets/111", SHEET)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+    exit_code = main(["pull", "--config", str(config_path),
+                      "--state", str(tmp_path / "state")])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "issues: SYNCED sheet 111" in out
+    assert "people: OFF" in out
+    assert "falls back to yaml" in out                 # human fallback note
 
 
 def test_cli_pull_end_to_end(tmp_path, monkeypatch):

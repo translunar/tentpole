@@ -220,3 +220,22 @@ def test_unknown_deployment_is_actionable(tmp_path):
             "  scope_jql: project = A\n")
     with pytest.raises(ValueError, match="onprem"):
         load_config(_write(tmp_path, text), env={"T": "tok"})
+
+
+def test_smartsheet_expect_parsed(tmp_path, monkeypatch):
+    from tentpole.adapters.config import load_config
+    monkeypatch.setenv("S", "tok")
+    (tmp_path / "c.yaml").write_text(
+        "smartsheet:\n  token_env_var: S\n  workspace_id: 999\n"
+        "  expect: [issues, capacity]\n")
+    cfg = load_config(tmp_path / "c.yaml")
+    assert cfg.smartsheet.expect == ("issues", "capacity")
+    assert cfg.smartsheet.workspace_id == 999
+
+
+def test_smartsheet_expect_defaults_empty(tmp_path, monkeypatch):
+    from tentpole.adapters.config import load_config
+    monkeypatch.setenv("S", "tok")
+    (tmp_path / "c.yaml").write_text("smartsheet:\n  token_env_var: S\n")
+    cfg = load_config(tmp_path / "c.yaml")
+    assert cfg.smartsheet.expect == ()

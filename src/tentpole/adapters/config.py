@@ -97,6 +97,7 @@ class SmartsheetConfig:
     token: Secret | str = field(repr=False)
     sheets: dict[str, int] = field(default_factory=dict)
     workspace_id: int | None = None
+    expect: tuple[str, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.token, Secret):
@@ -157,6 +158,7 @@ def load_config(path: Path, env: dict | None = None) -> AdapterConfig:
             token=_token(s, env),
             sheets={k: int(v) for k, v in s.get("sheets", {}).items()},
             workspace_id=s.get("workspace_id"),
+            expect=tuple(s.get("expect", [])),
         )
     return AdapterConfig(jira=jira, smartsheet=smartsheet,
                          core=raw.get("core", {}))
