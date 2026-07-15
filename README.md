@@ -76,8 +76,9 @@ pip install tentpole
    `workspace_id` plus one `issues` sheet — every other machine sheet is
    opt-in and simply OFF until it exists.
 
-   **Sheets resolve by name.** For each schema (`issues`, `capacity`,
-   `fixversions`, `dependencies`, `accuracy`, `people`, `future_work`),
+   **Sheets resolve by name.** For each schema (`issues`, `epics`,
+   `capacity`, `fixversions`, `dependencies`, `accuracy`, `people`,
+   `future_work`),
    tentpole uses the explicit id under `smartsheet.sheets` if present,
    otherwise a sheet in `workspace_id` whose name matches the schema name
    exactly, otherwise the schema is OFF. Every `push` and `pull` prints one
