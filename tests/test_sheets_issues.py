@@ -105,3 +105,16 @@ def test_issues_sheet_first_planned_from_snapshots(make_bundle):
     rows = {r.key: r for r in spec.rows}
     assert rows["T-1"].cells["First Planned"] == "2026-04-01"
     assert rows["T-2"].cells["First Planned"] is None
+
+
+def test_issues_sheet_gantt_mode_adds_cells_and_milestones(make_bundle):
+    from datetime import date as _date
+    from tentpole.model import FixVersion
+    b = make_bundle(
+        issues=[_task("T-1", remaining_estimate_days=3.0)],
+        fix_versions=[FixVersion("v1", release_date=_date(2026, 9, 1))])
+    spec = issues_sheet(b, assemble(b), gantt=True)
+    rows = {r.key: r for r in spec.rows}
+    assert rows["T-1"].cells["Duration"] == 3.0
+    assert "milestone:v1" in rows
+    assert rows["milestone:v1"].cells["Duration"] == 0

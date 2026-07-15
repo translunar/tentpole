@@ -115,6 +115,12 @@ def issues_sheet(bundle: Bundle, diag: dict,
                     for i in non_epics if i.epic_key == epic.key)
     rows.extend(Row(i.key, cells_for(i)) for i in non_epics
                 if i.epic_key not in epic_keys)
+    if gantt:
+        from tentpole.gantt import gantt_cells, milestone_rows
+        gcells = gantt_cells(bundle)
+        for row in rows:
+            row.cells.update(gcells.get(row.key, {}))
+        rows.extend(milestone_rows(bundle))
     return SheetSpec("issues", rows)
 
 
