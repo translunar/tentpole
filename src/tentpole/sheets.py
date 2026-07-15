@@ -106,29 +106,6 @@ def _open_work(bundle: Bundle) -> list[Issue]:
             and not is_overhead(i, bundle.config)]
 
 
-def epics_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
-    at_risk = {f.subject for f in diag["findings"]
-               if f.check == "tentpole_runway"}
-    open_work = _open_work(bundle)
-    rows = []
-    for epic in sorted((i for i in bundle.issues
-                        if i.issue_type == "Epic" and not i.external),
-                       key=lambda i: i.key):
-        children = [i for i in open_work if i.epic_key == epic.key]
-        rows.append(Row(epic.key, {
-            "Epic": epic.key,
-            "Summary": epic.summary,
-            "Program": epic.program,
-            "Deadline": _iso(effective_deadline(epic, bundle)),
-            "Open Tickets": len(children),
-            "Remaining Days": sum(estimate_of(i) for i in children),
-            "People": ", ".join(sorted({i.assignee for i in children
-                                        if i.assignee})),
-            "Runway": "AT RISK" if epic.key in at_risk else "",
-        }))
-    return SheetSpec("epics", rows)
-
-
 def fixversions_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
     at_risk = {f.subject for f in diag["findings"]
                if f.check == "deadline_risk"}
@@ -218,7 +195,6 @@ def accuracy_sheet(bundle: Bundle) -> SheetSpec:
 def build_sheetspecs(bundle: Bundle, diag: dict) -> dict[str, SheetSpec]:
     return {
         "issues": issues_sheet(bundle, diag),
-        "epics": epics_sheet(bundle, diag),
         "fixversions": fixversions_sheet(bundle, diag),
         "dependencies": dependencies_sheet(bundle),
         "capacity": capacity_sheet(diag),

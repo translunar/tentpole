@@ -60,6 +60,6 @@ def test_accuracy_sheet_rows(make_bundle):
 def test_build_sheetspecs_covers_machine_sheets(make_bundle):
     b = make_bundle(issues=[_task("T-1")])
     specs = build_sheetspecs(b, assemble(b))
-    assert set(specs) == {"issues", "epics", "fixversions", "dependencies",
+    assert set(specs) == {"issues", "fixversions", "dependencies",
                           "capacity", "accuracy"}
     assert all(specs[k].sheet == k for k in specs)

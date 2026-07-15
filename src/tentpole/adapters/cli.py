@@ -153,6 +153,15 @@ def _push(args) -> int:
         # silently failing sync must be impossible).
         print(f"ERROR: {err}")
         return 1
+    # Upgraders may still have an `epics` sheet in the workspace; it now
+    # matches no schema (folded into issues in 0.5.0). Say so once.
+    try:
+        ws_names = set(smartsheet_load._workspace_sheets(cfg.smartsheet))
+    except Exception:
+        ws_names = set()
+    if "epics" in ws_names:
+        print("note: a sheet named 'epics' is in the workspace but no longer "
+              "matches a schema -- its rollups folded into issues in 0.5.0")
     failed = 0
     # Enumerate EVERY known schema and its resolution every run (spec §2):
     # a renamed/deleted sheet flips to OFF here, never fails silently.

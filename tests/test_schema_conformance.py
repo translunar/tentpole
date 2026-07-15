@@ -40,7 +40,7 @@ def test_all_machine_sheet_rows_match_their_schema_columns(make_bundle):
     diag = assemble(bundle)
     specs = build_sheetspecs(bundle, diag)
 
-    assert set(specs) == {"issues", "epics", "fixversions", "dependencies",
+    assert set(specs) == {"issues", "fixversions", "dependencies",
                           "capacity", "accuracy"}
 
     for name, spec in specs.items():

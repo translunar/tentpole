@@ -2,7 +2,7 @@ from tentpole.schema import SCHEMAS, render_schemas
 
 
 def test_registry_has_all_sheets_with_ownership():
-    assert set(SCHEMAS) == {"issues", "epics", "fixversions", "dependencies",
+    assert set(SCHEMAS) == {"issues", "fixversions", "dependencies",
                             "capacity", "accuracy", "future_work", "people"}
     assert SCHEMAS["issues"].owned == "machine"
     assert SCHEMAS["future_work"].owned == "human"

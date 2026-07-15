@@ -44,13 +44,14 @@ def test_cli_bootstrap_prints_config_snippet(tmp_path, monkeypatch,
     monkeypatch.setenv("S", "tok")
     import tentpole.adapters.cli as edge_cli
     monkeypatch.setattr(edge_cli.smartsheet_load, "bootstrap",
-                        lambda cfg, names=None: {"issues": 1000, "epics": 1001})
+                        lambda cfg, names=None: {"issues": 1000,
+                                                 "fixversions": 1001})
     from tentpole.cli import main
     code = main(["bootstrap",
                  "--config", str(tmp_path / "tentpole.yaml")])
     out = capsys.readouterr().out
     assert code == 0
-    assert "issues: 1000" in out and "epics: 1001" in out
+    assert "issues: 1000" in out and "fixversions: 1001" in out
     assert "SmartsheetGov" in out          # the not-integration-tested warning
 
 

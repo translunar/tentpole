@@ -59,8 +59,8 @@ def test_refuses_human_owned_sheets():
 
 
 def test_refuses_mismatched_spec_and_schema():
-    with pytest.raises(ValueError, match="epics.*issues|issues.*epics"):
-        plan_changes(SheetSpec("epics", []), {}, SCHEMAS["issues"])
+    with pytest.raises(ValueError, match="capacity.*issues|issues.*capacity"):
+        plan_changes(SheetSpec("capacity", []), {}, SCHEMAS["issues"])
 
 
 def test_update_ignores_unsynced_columns():

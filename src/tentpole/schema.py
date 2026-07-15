@@ -51,14 +51,6 @@ SCHEMAS: dict[str, SheetSchema] = {
         ColumnDef("In Progress", "DATE"), ColumnDef("Done", "DATE"),
         ColumnDef("In Jira", "CHECKBOX"),
     )),
-    "epics": SheetSchema("epics", "machine", (
-        ColumnDef("Epic", primary=True),
-        ColumnDef("Summary"), ColumnDef("Program"),
-        ColumnDef("Deadline", "DATE"),
-        ColumnDef("Open Tickets", "NUMBER"),
-        ColumnDef("Remaining Days", "NUMBER"),
-        ColumnDef("People"), ColumnDef("Runway"),
-    )),
     "fixversions": SheetSchema("fixversions", "machine", (
         ColumnDef("Version", primary=True),
         ColumnDef("Release Date", "DATE"),

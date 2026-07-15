@@ -447,21 +447,22 @@ def _cols_for(name, drop=None):
 
 def test_preflight_validates_every_sheet_before_first_write(
         tmp_path, fake_http):
-    # issues (first in SCHEMAS order) is valid; epics is missing a
+    # issues (first in SCHEMAS order) is valid; fixversions is missing a
     # column. Without pre-flight, issues would be WRITTEN before the
-    # epics mismatch aborted the loop.
+    # fixversions mismatch aborted the loop.
     cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
-                           sheets={"issues": 111, "epics": 222})
+                           sheets={"issues": 111, "fixversions": 222})
     fake_http.add("GET", "/sheets/111", COLS)
-    fake_http.add("GET", "/sheets/222", _cols_for("epics", drop="Runway"))
+    fake_http.add("GET", "/sheets/222",
+                  _cols_for("fixversions", drop="Risk"))
     plans = tmp_path / "plans"
     plans.mkdir()
     (plans / "issues.json").write_text(
         json.dumps([_add("T-1", {"Summary": "s"})]))
-    (plans / "epics.json").write_text(
-        json.dumps([_add("E-1", {"Summary": "e"})]))
+    (plans / "fixversions.json").write_text(
+        json.dumps([_add("v1", {"Version": "v1"})]))
     (tmp_path / "state").mkdir()
-    with pytest.raises(ValueError, match="Runway"):
+    with pytest.raises(ValueError, match="Risk"):
         push_plans(cfg, plans, tmp_path / "state", http=fake_http)
     assert all(c["method"] == "GET" for c in fake_http.calls)
 
@@ -559,3 +560,24 @@ def test_update_with_cells_and_reparent_rides_both_waves(fake_http):
     assert fake_http.calls[2]["body"] == [{"id": 900, "parentId": 800}]
     assert result["updated"] == 1          # counted once, not twice
     assert result["failed"] == []
+
+
+def test_cli_push_prints_epics_fold_hint(tmp_path, monkeypatch, capsys):
+    (tmp_path / "tentpole.yaml").write_text(
+        "smartsheet:\n  token_env_var: S\n  workspace_id: 999\n"
+        "  sheets:\n    issues: 1\n")
+    monkeypatch.setenv("S", "tok")
+    plans_dir = tmp_path / "plans"
+    state_dir = tmp_path / "state"
+    plans_dir.mkdir()
+    state_dir.mkdir()
+    (plans_dir / "issues.json").write_text("[]")
+    ws = {"sheets": [{"id": 1, "name": "issues"},
+                     {"id": 2, "name": "epics"}]}
+    routes = [("GET", "/workspaces/999", ws), ("GET", "/sheets/1", COLS)]
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(routes))
+    code = main(["push", "--config", str(tmp_path / "tentpole.yaml"),
+                 "--plans", str(plans_dir), "--state", str(state_dir)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "folded into issues" in out

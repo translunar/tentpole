@@ -13,7 +13,7 @@ def test_run_sync_end_to_end(make_bundle):
     b = make_bundle(issues=[_task("T-1", assignee="ada", sprint_id=1,
                                   remaining_estimate_days=3.0)])
     result = run_sync(b, None, {})
-    assert set(result.specs) == {"issues", "epics", "fixversions",
+    assert set(result.specs) == {"issues", "fixversions",
                                  "dependencies", "capacity", "accuracy"}
     issue_ops = {(c.op, c.key) for c in result.plans["issues"]}
     assert ("add", "T-1") in issue_ops
