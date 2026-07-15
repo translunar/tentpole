@@ -22,6 +22,7 @@ _SECTION_ORDER = [
     "sprint_overload", "deadline_risk", "tentpole_runway",
     "dependency_readiness", "ghost_claims", "team_subscription",
     "team_drift", "unmatched_exception", "carryover",
+    "link_cycle", "link_stale_done", "link_out_of_scope",
 ]
 
 

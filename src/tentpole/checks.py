@@ -7,6 +7,7 @@ from tentpole.buckets import (
     Bucket, bucket_for_issue, effective_deadline, sprint_equivalents_until,
 )
 from tentpole.demand import DemandItem
+from tentpole.linkgraph import blocks_edges, break_cycles
 from tentpole.model import Bundle
 from tentpole.throughput import capacity_for, effective_throughput_for
 
@@ -261,4 +262,46 @@ def carryover(bundle: Bundle, prior_snapshots: list[dict] | None) -> list[Findin
             "carryover", "yellow", issue.assignee or "unassigned", None,
             f"{issue.key}: second consecutive plan; {prev_txt} -> {cur_txt} "
             f"remaining", epic_key=issue.epic_key))
+    return findings
+
+
+def link_hygiene(bundle: Bundle) -> list[Finding]:
+    # Spec §7: extract-time link pruning surfaces as findings so links get
+    # fixed in Jira (never an overlay file). Three kinds: cycle members
+    # (naming the droppable edge), blocks-links into done work (stale), and
+    # links to out-of-scope targets (not in the bundle).
+    in_scope = {i.key for i in bundle.issues if not i.external}
+    findings = []
+    edges = blocks_edges(bundle)
+
+    # Out-of-scope: one endpoint is not a bundle issue.
+    for src, dst in edges:
+        missing = [k for k in (src, dst) if k not in in_scope]
+        for k in missing:
+            other = dst if k == src else src
+            findings.append(Finding(
+                "link_out_of_scope", "yellow", other, None,
+                f"blocks-link {src} -> {dst} points at {k}, which is not in "
+                f"scope -- fix or remove the link in Jira"))
+
+    # Stale: blocker or blocked is done (a blocks-link into/out of done work).
+    for src, dst in edges:
+        for k, role in ((src, "blocker"), (dst, "blocked")):
+            issue = bundle.issue(k)
+            if issue is not None and issue.status_category == "done":
+                findings.append(Finding(
+                    "link_stale_done", "yellow", k, None,
+                    f"blocks-link {src} -> {dst} involves done work {k} "
+                    f"({role}) -- stale, prune it in Jira"))
+
+    # Cycles: name the edge cycle-breaking would drop, flag both endpoints.
+    in_scope_edges = [(s, d) for s, d in edges
+                      if s in in_scope and d in in_scope]
+    _kept, dropped = break_cycles(in_scope_edges)
+    for src, dst in dropped:
+        for endpoint in (src, dst):
+            findings.append(Finding(
+                "link_cycle", "yellow", endpoint, None,
+                f"blocks-link cycle: edge {src} -> {dst} would be dropped to "
+                f"break the cycle -- resolve it in Jira"))
     return findings
