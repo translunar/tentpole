@@ -135,3 +135,15 @@ def test_sync_emptied_people_sheet_drops_stale_bundle_roster(dirs):
     assert rc == 0
     cap = json.loads((out / "plans" / "capacity.json").read_text())
     assert cap == []
+
+
+def test_sync_carryover_fires_on_second_run(dirs, capsys):
+    # First run seeds snapshots.jsonl (T-1 sprint-planned, not done). Second
+    # run over the same bundle -> carryover yellow finding.
+    bundle, state, out = dirs
+    main(["sync", "--bundle", str(bundle), "--state", str(state),
+          "--out", str(out)])
+    main(["sync", "--bundle", str(bundle), "--state", str(state),
+          "--out", str(out)])
+    report = json.loads((out / "report.json").read_text())
+    assert report["findings"].get("carryover") == 1

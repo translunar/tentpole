@@ -21,7 +21,7 @@ from tentpole.sync import run_sync
 _SECTION_ORDER = [
     "sprint_overload", "deadline_risk", "tentpole_runway",
     "dependency_readiness", "ghost_claims", "team_subscription",
-    "team_drift", "unmatched_exception",
+    "team_drift", "unmatched_exception", "carryover",
 ]
 
 
@@ -126,7 +126,13 @@ def main(argv: list[str] | None = None) -> int:
         current = {name: _state(name) or {}
                    for name, schema in SCHEMAS.items()
                    if schema.owned == "machine"}
-        result = run_sync(bundle, rules, current)
+        snap_path = args.state / "snapshots.jsonl"
+        prior_snapshots = None
+        if snap_path.exists():
+            from tentpole.snapshots import parse_jsonl
+            prior_snapshots = parse_jsonl(snap_path.read_text())
+        result = run_sync(bundle, rules, current,
+                          prior_snapshots=prior_snapshots)
 
         plans_dir = args.out / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)

@@ -18,6 +18,7 @@ class Finding:
     subject: str           # person, epic key, fixVersion name, or "team"
     bucket_id: str | None
     message: str
+    epic_key: str | None = None   # set by carryover so reports group by epic
 
 
 def _load(demand: list[DemandItem], bucket_id: str,
@@ -226,4 +227,38 @@ def unmatched_exception(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
                 f"sprint {e.sprint_id}, which is not in the current plan -- "
                 f"fix the Sprint cell on the people sheet or the burden is "
                 f"ignored"))
+    return findings
+
+
+def carryover(bundle: Bundle, prior_snapshots: list[dict] | None) -> list[Finding]:
+    # Spec §7: compare the two most recent snapshot runs (the most recent
+    # prior run vs the current bundle). A ticket sprint-planned then, still
+    # not done, and sprint-planned again now is a yellow carryover. First
+    # run ever (no prior) -> nothing. Ticket-level (sprints hold tickets);
+    # the epic-level rollup is parked for 0.6.
+    if not prior_snapshots:
+        return []
+    latest_run = max(r["run"] for r in prior_snapshots)
+    was_planned = {
+        r["key"]: r for r in prior_snapshots
+        if r["run"] == latest_run and r.get("sprint_id") is not None}
+    findings = []
+    for issue in bundle.issues:
+        if issue.external or issue.issue_type == "Epic":
+            continue
+        if issue.status_category == "done" or issue.sprint_id is None:
+            continue
+        prev = was_planned.get(issue.key)
+        if prev is None:
+            continue
+        prev_rem = prev.get("remaining")
+        prev_txt = f"{prev_rem:.1f}d" if isinstance(prev_rem, (int, float)) \
+            else "?"
+        cur_rem = issue.remaining_estimate_days
+        cur_txt = f"{cur_rem:.1f}d" if isinstance(cur_rem, (int, float)) \
+            else "?"
+        findings.append(Finding(
+            "carryover", "yellow", issue.assignee or "unassigned", None,
+            f"{issue.key}: second consecutive plan; {prev_txt} -> {cur_txt} "
+            f"remaining", epic_key=issue.epic_key))
     return findings

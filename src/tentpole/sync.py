@@ -25,8 +25,9 @@ class SyncResult:
 
 
 def run_sync(bundle: Bundle, rules: list[Rule] | None,
-             current: dict[str, dict[str, dict]]) -> SyncResult:
-    diag = assemble(bundle, rules=rules)
+             current: dict[str, dict[str, dict]],
+             prior_snapshots: list[dict] | None = None) -> SyncResult:
+    diag = assemble(bundle, rules=rules, prior_snapshots=prior_snapshots)
     specs = build_sheetspecs(bundle, diag)
     plans = {
         name: plan_changes(spec, current.get(name, {}), SCHEMAS[name])

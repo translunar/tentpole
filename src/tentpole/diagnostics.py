@@ -7,8 +7,9 @@ import json
 
 from tentpole.buckets import buckets_for
 from tentpole.checks import (
-    deadline_risk, dependency_readiness, ghost_claims, sprint_overload,
-    team_drift, team_subscription, tentpole_runway, unmatched_exception,
+    carryover, deadline_risk, dependency_readiness, ghost_claims,
+    sprint_overload, team_drift, team_subscription, tentpole_runway,
+    unmatched_exception,
 )
 from tentpole.demand import compile_demand
 from tentpole.hygiene import Rule, evaluate
@@ -16,7 +17,8 @@ from tentpole.model import Bundle
 from tentpole.throughput import capacity_for
 
 
-def assemble(bundle: Bundle, rules: list[Rule] | None = None) -> dict:
+def assemble(bundle: Bundle, rules: list[Rule] | None = None,
+             prior_snapshots: list[dict] | None = None) -> dict:
     buckets = buckets_for(bundle)
     demand = compile_demand(bundle, buckets)
     findings = (
@@ -28,6 +30,7 @@ def assemble(bundle: Bundle, rules: list[Rule] | None = None) -> dict:
         + ghost_claims(bundle, buckets)
         + team_drift(bundle, buckets, demand)
         + unmatched_exception(bundle, buckets)
+        + carryover(bundle, prior_snapshots)
     )
     capacity = [
         {"person": person, "bucket_id": bucket.id,
