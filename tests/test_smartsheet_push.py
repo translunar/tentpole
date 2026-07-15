@@ -37,6 +37,11 @@ COLS = {"columns": [
     {"id": 32, "title": "In Progress"},
     {"id": 33, "title": "Done"},
     {"id": 12, "title": "In Jira"},
+    {"id": 34, "title": "Deadline"},
+    {"id": 35, "title": "Open Tickets"},
+    {"id": 36, "title": "Remaining Days"},
+    {"id": 37, "title": "People"},
+    {"id": 38, "title": "Runway"},
 ]}
 
 

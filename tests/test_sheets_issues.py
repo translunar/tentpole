@@ -54,3 +54,39 @@ def test_issues_sheet_hygiene_column(make_bundle):
     spec = issues_sheet(b, assemble(b, rules=rules))
     row = next(r for r in spec.rows if r.key == "T-1")
     assert row.cells["Hygiene"] == "yellow:orphan-task"
+
+
+def test_issues_sheet_epic_rows_carry_rollups(make_bundle):
+    from datetime import date as _date
+    from tentpole.model import FixVersion
+    epic = Issue(key="E-1", summary="Epic one", issue_type="Epic",
+                 status_category="in_progress", fix_versions=["v9"],
+                 program="telemetry")
+    b = make_bundle(
+        fix_versions=[FixVersion("v9", release_date=_date(2026, 8, 1))],
+        issues=[
+            epic,
+            _task("T-1", epic_key="E-1", assignee="ada",
+                  remaining_estimate_days=60.0, sprint_id=1),
+            _task("T-2", epic_key="E-1", assignee="grace",
+                  remaining_estimate_days=4.0, sprint_id=2),
+            _task("T-3", epic_key="E-1", status_category="done",
+                  remaining_estimate_days=9.0),
+        ])
+    spec = issues_sheet(b, assemble(b))
+    rows = {r.key: r for r in spec.rows}
+    e = rows["E-1"].cells
+    assert e["Open Tickets"] == 2
+    assert e["Remaining Days"] == 64.0
+    assert e["People"] == "ada, grace"
+    assert e["Deadline"] == "2026-08-01"
+    assert e["Runway"] == "AT RISK"
+    # ticket rows leave the rollups blank
+    t = rows["T-1"].cells
+    assert t["Open Tickets"] is None
+    assert t["Remaining Days"] is None
+    assert t["People"] is None
+    assert t["Deadline"] is None
+    assert t["Runway"] == ""
+    # ticket-level Remaining Est is unaffected by the rollup
+    assert t["Remaining Est"] == 60.0

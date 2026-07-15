@@ -38,9 +38,30 @@ def issues_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
     for fl in diag["hygiene"]:
         hygiene.setdefault(fl.key, []).append(f"{fl.severity}:{fl.rule}")
     sprint_names = {s.id: s.name for s in bundle.sprints}
+    at_risk = {f.subject for f in diag["findings"]
+               if f.check == "tentpole_runway"}
+    open_work = _open_work(bundle)
+
+    def rollups_for(issue: Issue) -> dict:
+        # Populated only on epic rows; blank on tickets (spec §5). Remaining
+        # Days is the rollup of OPEN children -- distinct from the
+        # ticket-level Remaining Est, which on an epic row stays the epic's
+        # own timetracking.
+        if issue.issue_type != "Epic":
+            return {"Deadline": None, "Open Tickets": None,
+                    "Remaining Days": None, "People": None, "Runway": ""}
+        children = [i for i in open_work if i.epic_key == issue.key]
+        return {
+            "Deadline": _iso(effective_deadline(issue, bundle)),
+            "Open Tickets": len(children),
+            "Remaining Days": sum(estimate_of(i) for i in children),
+            "People": ", ".join(sorted({i.assignee for i in children
+                                        if i.assignee})),
+            "Runway": "AT RISK" if issue.key in at_risk else "",
+        }
 
     def cells_for(issue: Issue) -> dict:
-        return {
+        cells = {
             "Key": issue.key,
             "Summary": issue.summary,
             "Type": issue.issue_type,
@@ -59,6 +80,8 @@ def issues_sheet(bundle: Bundle, diag: dict) -> SheetSpec:
             "Done": _iso(issue.done_at),
             "In Jira": True,
         }
+        cells.update(rollups_for(issue))
+        return cells
 
     ours = [i for i in bundle.issues if not i.external]
     epics = sorted((i for i in ours if i.issue_type == "Epic"),
