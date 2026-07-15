@@ -85,3 +85,25 @@ def test_load_bundle_team_list_form_unchanged(tmp_path):
     b = load_bundle(tmp_path)
     assert b.config.team == ["ada", "grace"]
     assert b.config.recurring_days == {}
+
+
+def test_load_bundle_team_map_form_rejects_bare_number_burden(tmp_path):
+    import json
+    import pytest
+    from tentpole.model import load_bundle
+    (tmp_path / "meta.json").write_text(json.dumps({"as_of": "2026-07-12"}))
+    (tmp_path / "config.json").write_text(json.dumps({
+        "team": {"grace": 2}}))
+    with pytest.raises(ValueError, match="grace"):
+        load_bundle(tmp_path)
+
+
+def test_load_bundle_team_map_form_rejects_string_day_value(tmp_path):
+    import json
+    import pytest
+    from tentpole.model import load_bundle
+    (tmp_path / "meta.json").write_text(json.dumps({"as_of": "2026-07-12"}))
+    (tmp_path / "config.json").write_text(json.dumps({
+        "team": {"grace": {"ops rotation": "two"}}}))
+    with pytest.raises(ValueError, match="two"):
+        load_bundle(tmp_path)

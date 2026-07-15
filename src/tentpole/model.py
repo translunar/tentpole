@@ -170,10 +170,32 @@ def load_bundle(path: Path) -> Bundle:
         # {label: days} dict of recurring burden. Labels are documentation;
         # the capacity math needs only the per-person sum.
         config_raw["team"] = list(team_raw)
-        config_raw["recurring_days"] = {
-            person: float(sum((burden or {}).values()))
-            for person, burden in team_raw.items()
-        }
+        recurring_days = {}
+        for person, burden in team_raw.items():
+            # Validate: burden must be a mapping (dict) or None/empty
+            if burden is None or burden == {}:
+                recurring_days[person] = 0.0
+            elif isinstance(burden, dict):
+                # Validate: each day value must be numeric (not bool, not str)
+                total_days = 0.0
+                for label, day_value in burden.items():
+                    if isinstance(day_value, bool):
+                        raise ValueError(
+                            f"core.team entry {person!r} label {label!r}: "
+                            f"expected a number of days, got {day_value!r}")
+                    if not isinstance(day_value, (int, float)):
+                        raise ValueError(
+                            f"core.team entry {person!r} label {label!r}: "
+                            f"expected a number of days, got {day_value!r}")
+                    total_days += float(day_value)
+                recurring_days[person] = total_days
+            else:
+                # burden is not a dict (e.g., bare number, string)
+                raise ValueError(
+                    f"core.team entry {person!r}: expected a mapping of "
+                    f"{{label: days}} or {{}}, got {burden!r} -- write "
+                    f"{person}: {{ops: 2}}")
+        config_raw["recurring_days"] = recurring_days
     return Bundle(
         as_of=date.fromisoformat(meta["as_of"]),
         issues=issues, sprints=sprints, fix_versions=fix_versions,
