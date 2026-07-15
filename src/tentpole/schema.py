@@ -13,6 +13,7 @@ class ColumnDef:
     type: str = "TEXT"      # TEXT | NUMBER | DATE | CHECKBOX
     primary: bool = False
     synced: bool = True     # False = human-owned; the sync never writes it
+    gantt: bool = False     # gantt-mode-only column (spec §6)
 
 
 @dataclass(frozen=True)
@@ -24,14 +25,22 @@ class SheetSchema:
     def primary_column(self) -> ColumnDef:
         return next(c for c in self.columns if c.primary)
 
-    def synced_names(self) -> list[str]:
-        return [c.name for c in self.columns if c.synced]
+    def synced_names(self, gantt: bool = False) -> list[str]:
+        return [c.name for c in self.columns
+                if c.synced and (gantt or not c.gantt)]
+
+    def column_names(self, gantt: bool = False) -> list[str]:
+        return [c.name for c in self.columns if gantt or not c.gantt]
 
 
 def _human(name: str, *cols: ColumnDef) -> SheetSchema:
     unsynced = tuple(
         ColumnDef(c.name, c.type, c.primary, synced=False) for c in cols)
     return SheetSchema(name, "human", unsynced)
+
+
+GANTT_COLUMNS = ("Forecast Start", "Forecast Finish", "Duration",
+                 "Predecessors", "Flags")
 
 
 SCHEMAS: dict[str, SheetSchema] = {
@@ -49,6 +58,11 @@ SCHEMAS: dict[str, SheetSchema] = {
         ColumnDef("Remaining Days", "NUMBER"),
         ColumnDef("People"), ColumnDef("Runway"),
         ColumnDef("First Planned", "DATE"),
+        ColumnDef("Forecast Start", "DATE", gantt=True),
+        ColumnDef("Forecast Finish", "DATE", gantt=True),
+        ColumnDef("Duration", "NUMBER", gantt=True),
+        ColumnDef("Predecessors", gantt=True),
+        ColumnDef("Flags", gantt=True),
         ColumnDef("In Progress", "DATE"), ColumnDef("Done", "DATE"),
         ColumnDef("In Jira", "CHECKBOX"),
     )),

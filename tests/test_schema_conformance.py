@@ -45,7 +45,7 @@ def test_all_machine_sheet_rows_match_their_schema_columns(make_bundle):
 
     for name, spec in specs.items():
         schema = SCHEMAS[name]
-        expected = {c.name for c in schema.columns}
+        expected = set(schema.column_names(gantt=False))
         assert spec.rows, f"{name} sheet produced no rows to check"
         for row in spec.rows:
             assert set(row.cells) == expected, (

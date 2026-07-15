@@ -49,7 +49,8 @@ def _first_planned(prior_snapshots: list[dict] | None) -> dict[str, str]:
 
 
 def issues_sheet(bundle: Bundle, diag: dict,
-                 prior_snapshots: list[dict] | None = None) -> SheetSpec:
+                 prior_snapshots: list[dict] | None = None,
+                 gantt: bool = False) -> SheetSpec:
     hygiene: dict[str, list[str]] = {}
     for fl in diag["hygiene"]:
         hygiene.setdefault(fl.key, []).append(f"{fl.severity}:{fl.rule}")
@@ -211,10 +212,10 @@ def accuracy_sheet(bundle: Bundle) -> SheetSpec:
 
 
 def build_sheetspecs(bundle: Bundle, diag: dict,
-                     prior_snapshots: list[dict] | None = None
-                     ) -> dict[str, SheetSpec]:
+                     prior_snapshots: list[dict] | None = None,
+                     gantt: bool = False) -> dict[str, SheetSpec]:
     return {
-        "issues": issues_sheet(bundle, diag, prior_snapshots),
+        "issues": issues_sheet(bundle, diag, prior_snapshots, gantt),
         "fixversions": fixversions_sheet(bundle, diag),
         "dependencies": dependencies_sheet(bundle),
         "capacity": capacity_sheet(diag),

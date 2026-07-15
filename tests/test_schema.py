@@ -31,3 +31,15 @@ def test_render_schemas_lists_every_sheet_and_column():
         for col in schema.columns:
             assert col.name in text
     assert "human" in text and "machine" in text
+
+
+def test_issues_schema_has_gantt_columns_flagged():
+    from tentpole.schema import GANTT_COLUMNS, SCHEMAS
+    names = {c.name: c for c in SCHEMAS["issues"].columns}
+    for col in GANTT_COLUMNS:
+        assert col in names, col
+        assert names[col].gantt is True
+    # Non-gantt accessor excludes them; gantt accessor includes them.
+    assert set(GANTT_COLUMNS).isdisjoint(SCHEMAS["issues"].synced_names())
+    assert set(GANTT_COLUMNS).issubset(
+        SCHEMAS["issues"].synced_names(gantt=True))

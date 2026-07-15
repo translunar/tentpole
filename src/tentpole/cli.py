@@ -132,8 +132,13 @@ def main(argv: list[str] | None = None) -> int:
         if snap_path.exists():
             from tentpole.snapshots import parse_jsonl
             prior_snapshots = parse_jsonl(snap_path.read_text())
+        settings_path = args.state / "settings.json"
+        gantt = False
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+            gantt = bool(settings.get("issues", {}).get("dependencies_enabled"))
         result = run_sync(bundle, rules, current,
-                          prior_snapshots=prior_snapshots)
+                          prior_snapshots=prior_snapshots, gantt=gantt)
 
         plans_dir = args.out / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)

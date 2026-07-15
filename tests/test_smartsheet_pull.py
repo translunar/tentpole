@@ -43,6 +43,8 @@ def test_pull_sheet_maps_titles_values_and_hierarchy(fake_http):
 
 
 def test_pull_state_writes_files(tmp_path, fake_http):
+    # Two GETs on /sheets/111: pull_sheet, then _dependencies_enabled.
+    fake_http.add("GET", "/sheets/111", SHEET)
     fake_http.add("GET", "/sheets/111", SHEET)
     report = pull_state(CFG, tmp_path, http=fake_http)
     assert report["issues"]["state"] == "SYNCED"
@@ -170,6 +172,8 @@ def test_pull_state_discovers_by_name_and_skips_off(tmp_path, fake_http):
                            workspace_id=999)
     ws = {"sheets": [{"id": 111, "name": "issues"}]}   # only issues present
     fake_http.add("GET", "/workspaces/999", ws)
+    # Two GETs on /sheets/111: pull_sheet, then _dependencies_enabled.
+    fake_http.add("GET", "/sheets/111", SHEET)
     fake_http.add("GET", "/sheets/111", SHEET)
     report = pull_state(cfg, tmp_path, http=fake_http)
     assert report["issues"]["state"] == "SYNCED"
@@ -191,6 +195,8 @@ def test_pull_state_off_unlinks_stale_state_file(tmp_path, fake_http):
                            workspace_id=999)
     ws = {"sheets": [{"id": 111, "name": "issues"}]}   # only issues present
     fake_http.add("GET", "/workspaces/999", ws)
+    # Two GETs on /sheets/111: pull_sheet, then _dependencies_enabled.
+    fake_http.add("GET", "/sheets/111", SHEET)
     fake_http.add("GET", "/sheets/111", SHEET)
     report = pull_state(cfg, tmp_path, http=fake_http)
     assert report["people"]["state"] == "OFF"
@@ -253,3 +259,17 @@ def test_cli_pull_end_to_end(tmp_path, monkeypatch):
     assert "T-1" in on_disk
     assert on_disk["T-1"]["_parent"] == "E-1"
     assert on_disk["T-1"]["_row_id"] == 901
+
+
+def test_pull_state_records_issues_dependencies_flag(tmp_path, fake_http):
+    from tentpole.adapters.smartsheet_load import pull_state
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           sheets={"issues": 111})
+    # Two GETs on /sheets/111: pull_sheet, then _dependencies_enabled.
+    sheet = dict(SHEET)
+    sheet["dependenciesEnabled"] = True
+    fake_http.add("GET", "/sheets/111", sheet)
+    fake_http.add("GET", "/sheets/111", sheet)
+    pull_state(cfg, tmp_path, http=fake_http)
+    settings = json.loads((tmp_path / "settings.json").read_text())
+    assert settings["issues"]["dependencies_enabled"] is True

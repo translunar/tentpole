@@ -111,11 +111,21 @@ def pull_sheet(cfg, sheet_id: int, http=request, *, sheet_name=None,
     return state
 
 
+def _dependencies_enabled(cfg, sheet_id: int, http=request) -> bool:
+    # UNVERIFIED shape: the issues sheet's dependency toggle. Field name is
+    # a live-smoke item (spec §6) -- fall back to False if absent so a
+    # non-gantt sheet behaves exactly as §5.
+    data = _call(cfg, "GET", f"/sheets/{sheet_id}", http=http)
+    return bool(data.get("dependenciesEnabled")
+                or data.get("projectSettings", {}).get("dependenciesEnabled"))
+
+
 def pull_state(cfg, state_dir: Path, http=request) -> dict[str, dict]:
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     resolved = resolve_sheets(cfg, http=http)   # inherits the unknown-key guard
     report: dict[str, dict] = {}
+    settings: dict[str, dict] = {}
     for name in sorted(SCHEMAS):
         owned = SCHEMAS[name].owned
         sheet_id = resolved.get(name)
@@ -135,6 +145,13 @@ def pull_state(cfg, state_dir: Path, http=request) -> dict[str, dict]:
         (state_dir / f"{name}.json").write_text(json.dumps(state, indent=2))
         report[name] = {"state": "SYNCED", "sheet_id": sheet_id,
                         "owned": owned}
+        if name == "issues":
+            settings["issues"] = {
+                "dependencies_enabled": _dependencies_enabled(
+                    cfg, sheet_id, http=http)}
+    if settings:
+        (state_dir / "settings.json").write_text(
+            json.dumps(settings, indent=2))
     return report
 
 
