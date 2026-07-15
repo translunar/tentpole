@@ -272,6 +272,21 @@ rows' `Flags`). External/cross-team edges render as `Flags` text
 depends on someone else. Missing estimates: default 1d + "no estimate"
 flag — drawable, and the guess is labeled.
 
+### Baselines: memory on the chart
+
+Between-plan memory on the Gantt itself comes from **Smartsheet
+baselines**, not from stretching bars. (Stretching was considered and
+rejected: Start, Duration, and Finish are arithmetically coupled on a
+dependency-enabled sheet, so pinning Start to first-scoped forces
+either a wrong Finish or a lying Duration.) At planning close, set a
+baseline: thereafter the chart shows current bars against ghost bars of
+the committed plan, with variance computed by Smartsheet. A ticket that
+slipped from one plan to the next renders as ghost-where-promised vs
+bar-where-it-now-sits. Started work needs no baseline to remember: its
+bar anchors at its actual start date by the seeding rules above.
+Baseline availability on the Gov plan is confirmed during the live
+smoke.
+
 The **render-target category** (write-only sheets rebuilt wholesale,
 defined for surfaces Smartsheet must own outright) remains in the
 design vocabulary for the PMO's imposed formats, but gantt no longer
@@ -329,12 +344,34 @@ engine re-chains. Two consequences to know:
   and an arrow deleted in the sheet returns if its blocks-link still
   exists in Jira. Pruning meant to persist belongs in Jira; sheet
   polish dresses one period's draft.
-- **The frozen plan of record is an archived copy.** The live sheet is
-  always the *current* plan. At planning close, archive a copy
-  (Save-as-New, named for the period); the copy is inert forever.
+- **Planning close is a two-click ritual: set baseline, archive copy.**
+  The baseline gives the live chart its ghost-bar memory (§6); the
+  archived copy (Save-as-New, named for the period) is the inert frozen
+  plan of record. The live sheet is always the *current* plan.
   Period-over-period learning on the numbers is already automatic
   (append-only snapshots; the accuracy sheet). A `tentpole archive`
   command may automate the copy later — not 0.5.0 scope.
+
+### Between-plan memory in the data
+
+- **Snapshot records widen.** Each per-ticket line gains `epic_key` and
+  `program` so future longitudinal analyses (epic carryover rates,
+  program-level slip) have linkage from now on; the parser tolerates
+  old lines without the fields. Append-only as ever.
+- **Carryover check** (ticket-level — sprints hold tickets, not epics):
+  compares the two most recent snapshot runs; a ticket that was
+  sprint-planned, is not done, and is sprint-planned again yields a
+  yellow finding, subject = assignee ("T-42: second consecutive plan;
+  5.0d -> 3.0d remaining"), carrying epic_key so reports can group by
+  epic. First run ever (no prior snapshot) → no findings. An epic-level
+  rollup finding ("N of M planned tickets carried") is parked for 0.6
+  pending real-data feel.
+- **`First Planned` column on issues**: earliest snapshot run in which
+  the ticket had a sprint — plain DATE, tentpole-owned, no engine
+  coupling; blank when there is no history. Chronic drifters become
+  sortable in the plan of record.
+- Prior snapshots become an optional input to sync (the CLI loads the
+  JSONL and passes records in; the core stays pure).
 
 ## 8. Prerequisite: pull-state keying
 
@@ -414,6 +451,12 @@ stop being recognized (README migration note: rename/rebuild into a
   from seeds produce zero updates); pre-flight errors when dependencies
   are enabled but gantt columns are missing/undesignated; link-hygiene
   findings name cycle edges, stale links, out-of-scope targets.
+- **Between-plan memory:** carryover fires only for
+  sprint-planned/not-done/sprint-planned-again across the last two runs
+  (done tickets and never-sprinted backlog stay quiet; no prior run →
+  no findings); First Planned = earliest sprint-planned run, blank
+  without history; widened snapshot records round-trip and old-format
+  lines still parse.
 - **Live before trust:** workspace discovery, bootstrap --sheets, and
   especially the gantt predecessor encoding get a SmartsheetGov smoke
   before the README drops the experimental label.
@@ -441,6 +484,12 @@ stop being recognized (README migration note: rename/rebuild into a
   periods by design.
 - Link pruning: human loop lives in Jira via link-hygiene findings; an
   exclusions overlay file was rejected as a second source of truth.
+- Sheet memory: Smartsheet baselines at planning close, chosen over
+  stretching bars back to first-scoped (Start/Duration/Finish coupling
+  would force a lying column). Data memory via carryover check +
+  First Planned column + widened snapshots.
+- Carryover is ticket-level (sprints hold tickets); epic-level rollup
+  parked for 0.6.
 - Foreign-sheet ingest (Smartsheet-only sister teams → external
   stubs/ghosts): parked until a concrete sister-team sheet exists to
   design against. Cross-team visibility today enters via Jira links.
