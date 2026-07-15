@@ -176,9 +176,12 @@ def effective_throughput_for(bundle, person) -> float:
     return prior(bundle.config) - bundle.config.recurring_days.get(person, 0.0)
 ```
 
-`capacity_for` and `team_subscription`'s coarse scaling both build on
-`effective_throughput_for`, so sprint capacity and plan-bucket capacity
-stay consistent. One-off exceptions always subtract from their specific
+`capacity_for`, `team_subscription`'s coarse scaling, and
+`tentpole_runway`'s pace projection all build on
+`effective_throughput_for`, so sprint capacity, plan-bucket capacity,
+and epic runway stay consistent — a prior-based person carrying
+recurring burden moves slower everywhere, not just in the overload
+check. One-off exceptions always subtract from their specific
 sprint bucket regardless of throughput source — history cannot know
 about next month's PTO. The result is deliberately not clamped: a
 recurring burden that exceeds the prior yields non-positive capacity,
@@ -226,7 +229,7 @@ forecast coexist as different columns; the engine never touches
 Gantt mode is on when the issues sheet has dependencies enabled —
 consistent with existence-as-config: no yaml key. Dependencies off →
 the sheet behaves exactly as §5, and the gantt columns are not
-required. Pre-flight when enabled: the four gantt columns exist and
+required. Pre-flight when enabled: the five gantt columns exist and
 `Forecast Start`/`Forecast Finish` are the project-settings designated
 pair, else an actionable error before any write. (Enabling dependencies
 and designating columns is a one-time UI step; the API cannot do it.
@@ -381,13 +384,17 @@ two ghosts titled "Migrate DB" merge; demand silently understated). The
 people sheet makes this load-bearing: ada's "PTO" child and grace's
 "PTO" child are the common case, not the edge.
 
-Fix, uniform for all sheets: state key = `f"{parent_primary}|{primary}"`
-for rows with a parent, bare primary for roots. After qualification, a
-duplicate key raises an actionable ValueError naming the sheet and the
-colliding value (this closes the future_work bug: duplicate root titles
-now fail loud instead of merging). Machine-sheet primaries are unique by
-construction, so change-planning against machine state is unaffected;
-`_parent` bookkeeping already exists and is unchanged.
+Fix: for **human sheets** (people, future_work), state key =
+`f"{parent_primary}|{primary}"` for rows with a parent, bare primary
+for roots. **Machine sheets keep bare primary keys** — the change plan
+matches machine rows on bare issue keys, so qualifying the issues
+sheet's nested children would break matching; machine primaries are
+unique by construction and their pulls stay byte-identical. The
+duplicate-key raise (actionable ValueError naming the sheet and the
+colliding value) applies to ALL sheets after keying — it closes the
+future_work bug (duplicate root titles fail loud instead of merging)
+and never fires for well-formed machine sheets. `_parent` bookkeeping
+already exists and is unchanged.
 
 ## 9. Sheet inventory after 0.5.0
 
