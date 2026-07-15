@@ -115,6 +115,9 @@ grace
 - **Child rows are burdens.** `Sprint` blank → recurring, every sprint.
   `Sprint` set → one-off in that sprint (exactly today's `ExceptionRow`:
   person, sprint_id, day_cost — the parent row supplies the person).
+  `Days` is fractional-friendly (`0.5` for a half-day ops rotation is
+  fine); `Sprint` must be a whole number because it is a sprint id, and
+  a fractional value there raises like any other malformed cell.
 - **No `(defaults)` group.** Config globals (`annual_vacation_days`,
   `annual_overhead_days`, ...) stay in yaml only. Considered and
   rejected: a second home for org constants creates a precedence puzzle
