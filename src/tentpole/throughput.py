@@ -39,9 +39,24 @@ def throughput_for(bundle: Bundle, person: str) -> float:
     return measured if measured is not None else prior(bundle.config)
 
 
+def effective_throughput_for(bundle: Bundle, person: str) -> float:
+    # Spec §4 (the double-count rule -- do NOT "simplify" this into always
+    # subtracting recurring_days; that reintroduces the bug). empirical()
+    # measures real delivery, so a person carrying recurring ops ALREADY
+    # shows reduced empirical throughput. Recurring burden therefore
+    # reduces capacity only while throughput comes from the prior. The
+    # result is deliberately not clamped: a burden exceeding the prior
+    # yields non-positive capacity, firing every capacity check -- correct
+    # for someone fully allocated to non-Jira work.
+    measured = empirical(bundle, person)
+    if measured is not None:
+        return measured
+    return prior(bundle.config) - bundle.config.recurring_days.get(person, 0.0)
+
+
 def capacity_for(bundle: Bundle, person: str, bucket: Bucket,
                  demand: list[DemandItem]) -> float:
-    cap = throughput_for(bundle, person)
+    cap = effective_throughput_for(bundle, person)
     cap -= sum(d.estimate_days for d in demand
                if d.kind == "overhead" and d.who == person
                and d.bucket_id == bucket.id)

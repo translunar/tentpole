@@ -62,3 +62,47 @@ def test_capacity_subtracts_overhead_and_exceptions(make_bundle):
     sprint1 = next(bk for bk in bks if bk.id == "sprint:1")
     expected = prior(b.config) - 2.0 - 3.0
     assert abs(capacity_for(b, "ada", sprint1, demand) - expected) < 1e-9
+
+
+def test_effective_throughput_prior_based_loses_recurring(make_bundle):
+    from tentpole.model import Config
+    from tentpole.throughput import effective_throughput_for
+    # No past sprints -> prior-based. Recurring burden is subtracted.
+    b = make_bundle(config=Config(team=["ada"], recurring_days={"ada": 2.0}))
+    assert abs(effective_throughput_for(b, "ada")
+               - (prior(b.config) - 2.0)) < 1e-9
+
+
+def test_effective_throughput_empirical_based_keeps_recurring(make_bundle,
+                                                              make_sprints):
+    from tentpole.model import Config
+    from tentpole.throughput import effective_throughput_for
+    # THE double-count regression test (spec §4, §11): a person whose
+    # throughput is empirical already has the recurring burden baked into
+    # the measurement, so it must NOT be subtracted again.
+    past = make_sprints(start=date(2026, 5, 1), n=3, first_id=101)
+    issues = [_done("T-1", "ada", 6.0, date(2026, 5, 5)),
+              _done("T-2", "ada", 4.0, date(2026, 5, 15)),
+              _done("T-3", "ada", 5.0, date(2026, 5, 25))]
+    b = make_bundle(sprints=past + make_sprints(), issues=issues,
+                    config=Config(team=["ada"], recurring_days={"ada": 2.0}))
+    assert empirical(b, "ada") == 5.0
+    assert effective_throughput_for(b, "ada") == 5.0   # NOT 3.0
+
+
+def test_effective_throughput_not_clamped(make_bundle):
+    from tentpole.model import Config
+    from tentpole.throughput import effective_throughput_for
+    # Recurring burden > prior -> non-positive, deliberately unclamped.
+    b = make_bundle(config=Config(team=["ada"], recurring_days={"ada": 999.0}))
+    assert effective_throughput_for(b, "ada") < 0
+
+
+def test_capacity_for_uses_effective_throughput(make_bundle):
+    from tentpole.model import Config
+    b = make_bundle(config=Config(team=["ada"], recurring_days={"ada": 2.0}))
+    bks = buckets_for(b)
+    sprint1 = next(bk for bk in bks if bk.id == "sprint:1")
+    # prior-based, recurring 2.0, no overhead/exceptions on the sprint.
+    assert abs(capacity_for(b, "ada", sprint1, [])
+               - (prior(b.config) - 2.0)) < 1e-9

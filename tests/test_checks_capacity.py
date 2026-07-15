@@ -155,3 +155,44 @@ def test_sprints_per_plan_moves_deadline_risk_and_capacity_together(
     assert "past the 2026-11-09 deadline" in late[0].message
     over = team_subscription(four, four_bks, compile_demand(four, four_bks))
     assert [f.bucket_id for f in over] == ["plan+1"]
+
+
+def test_team_subscription_coarse_capacity_loses_recurring(make_bundle):
+    from tentpole.throughput import prior
+    # A ghost sized to fit under 6*prior but NOT under 6*(prior-3) for a
+    # two-person team, so recurring burden flips plan+1 to over-subscribed.
+    base = 2 * prior(Config()) * 6            # ~91.8
+    reduced = 2 * (prior(Config()) - 3.0) * 6  # ~55.8
+    size = (base + reduced) / 2               # between the two
+    b = make_bundle(
+        config=Config(team=["ada", "grace"],
+                      recurring_days={"ada": 3.0, "grace": 3.0}),
+        ghosts=[Ghost(title="G", estimate_days=size, target="plan+1")])
+    bks = buckets_for(b)
+    over = team_subscription(b, bks, compile_demand(b, bks))
+    assert [f.bucket_id for f in over] == ["plan+1"]
+
+
+def test_tentpole_runway_uses_effective_throughput(make_bundle):
+    from tentpole.checks import tentpole_runway
+    # runway is a pace projection (team-lead ruling): a prior-based person
+    # with recurring burden moves slower there too. Raw prior (~7.65d over
+    # one sprint of runway) covers the epic's 6.0d -> safe; a 3d recurring
+    # burden drops ada's effective throughput to ~4.65d -> AT RISK. 6.0 sits
+    # between the two, pinning the boundary.
+    epic = Issue(key="E-1", summary="Big epic", issue_type="Epic",
+                 status_category="in_progress", fix_versions=["v1"])
+    t1 = Issue(key="T-1", summary="t", issue_type="Task",
+               status_category="todo", assignee="ada", epic_key="E-1",
+               remaining_estimate_days=6.0)
+    fv = FixVersion("v1", release_date=date(2026, 7, 22))   # end of sprint 1
+    safe = make_bundle(issues=[epic, t1], fix_versions=[fv],
+                       config=Config(team=["ada"]))
+    at_risk = make_bundle(issues=[epic, t1], fix_versions=[fv],
+                          config=Config(team=["ada"],
+                                        recurring_days={"ada": 3.0}))
+    for b, expect in ((safe, False), (at_risk, True)):
+        bks = buckets_for(b)
+        fired = any(f.check == "tentpole_runway" and f.subject == "E-1"
+                    for f in tentpole_runway(b, bks, compile_demand(b, bks)))
+        assert fired is expect

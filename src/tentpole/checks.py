@@ -8,7 +8,7 @@ from tentpole.buckets import (
 )
 from tentpole.demand import DemandItem
 from tentpole.model import Bundle
-from tentpole.throughput import capacity_for, throughput_for
+from tentpole.throughput import capacity_for, effective_throughput_for
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ def team_subscription(bundle: Bundle, buckets: list[Bucket],
             cap = sum(capacity_for(bundle, p, bucket, demand)
                       for p in bundle.config.team)
         else:
-            cap = sum(throughput_for(bundle, p)
+            cap = sum(effective_throughput_for(bundle, p)
                       * bundle.config.sprints_per_plan
                       for p in bundle.config.team)
         if total > cap:
@@ -119,7 +119,7 @@ def tentpole_runway(bundle: Bundle, buckets: list[Bucket],
             deadline, buckets, bundle.config.sprint_length_days)
         total_slack = 0.0
         for person in people:
-            cap = throughput_for(bundle, person) * runway
+            cap = effective_throughput_for(bundle, person) * runway
             committed = sum(
                 d.estimate_days for d in demand
                 if d.who == person and d.epic_key != epic.key
