@@ -18,6 +18,8 @@ def snapshot_records(bundle: Bundle) -> list[dict]:
             "assignee": issue.assignee,
             "original": issue.original_estimate_days,
             "remaining": issue.remaining_estimate_days,
+            "epic_key": issue.epic_key,
+            "program": issue.program,
         }
         for issue in bundle.issues
         if not issue.external and issue.issue_type != "Epic"
