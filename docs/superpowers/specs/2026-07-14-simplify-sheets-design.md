@@ -11,7 +11,8 @@ human-owned), requires all six machine sheets to be configured, and wires
 every sheet by numeric id in `tentpole.yaml`. Setup — not information — is
 the burden: nine hand-built sheets and six ids before the first useful sync.
 
-0.5.0 reduces the surface on three fronts:
+0.5.0 reduces the surface on three fronts and adds one deliberate,
+opt-in surface (the gantt render target, §6):
 
 1. **Sheets resolve by name inside a workspace; existence is the config.**
    A sheet syncs because it exists. Turning a sheet on means creating it.
@@ -21,9 +22,10 @@ the burden: nine hand-built sheets and six ids before the first useful sync.
 3. **The `epics` sheet folds into `issues`** as rollup columns on the epic
    rows that already exist there.
 
-End state: seven schemas (five machine: issues, fixversions,
-dependencies, capacity, accuracy; two human: people, future_work),
-minimum viable setup = one workspace id + one `issues` sheet.
+End state: eight schemas (five machine: issues, fixversions,
+dependencies, capacity, accuracy; one render: gantt; two human: people,
+future_work), minimum viable setup = one workspace id + one `issues`
+sheet.
 
 This supersedes the earlier mandatory-six decision, which is reversed:
 machine sheets are opt-in.
@@ -209,7 +211,77 @@ natively; we try that first at work (Gov included). Synthetic rows come
 back in 0.6 only if the report path proves inadequate — they carry real
 change-plan cost (stable keys for rows that mirror nothing in Jira).
 
-## 6. Prerequisite: pull-state keying
+## 6. The gantt render target
+
+A third sheet category alongside mirrors and analytics: **render
+targets** are write-only exports. No pull, no state file, no
+reconciliation — every sync bulk-deletes the sheet's rows and bulk-adds
+the new set (a few requests total; bulk row ops count as one request
+each against the rate limit, and the sheet holds open work only, so a
+rewrite is seconds). Render targets exist for surfaces where Smartsheet
+itself must own part of the data — here, the dependency engine owns the
+dates so it can draw predecessor arrows. The PMO's imposed formats reuse
+this category later.
+
+### Sheet
+
+Named `gantt`, discovered like every other schema — create it to turn it
+on. It must be **dependency-enabled**, which is a UI-side project
+setting the API cannot flip: setup is documented (enable dependencies in
+Project Settings; designate Start/Finish/Duration/Predecessors), and
+push pre-flights `dependenciesEnabled` on the sheet — not enabled →
+actionable error before any write. Columns: `Task` (primary, "KEY
+summary", epic hierarchy via nesting), `Assignee`, `Start` (DATE),
+`Finish` (DATE), `Duration`, `Predecessors`, `Flags`.
+
+### Content: a forecast of remaining work
+
+Done tickets do not appear; the surface never pretends to be history.
+
+- **Roots** (no in-sheet predecessor): write Start + Duration. Start =
+  today for in-progress work, sprint-window start for future
+  sprint-assigned work, bucket start otherwise. Duration = remaining
+  estimate (fractional fine).
+- **Predecessor'd rows:** write Duration + predecessor list only; the
+  scheduler derives Start/Finish — working with the constraint engine,
+  never against it. Arrows come from Jira blocks-links among included
+  tickets, finish-to-start, no lag.
+- **Epic rows** are parents; dependency-enabled sheets roll parent dates
+  up from children, so epic bars are free. Predecessors are not
+  meaningful on parent rows, so epic-level blocks links render in
+  `Flags`, not as arrows.
+- **fixVersions render as zero-duration milestone rows** at their
+  release dates — the diamonds the bars march toward.
+
+### Failure modes are flagged, never silent
+
+- **Cycles** in the blocks graph: one edge per cycle deterministically
+  dropped (highest sorted key loses); the dropped edge named in both
+  rows' `Flags`.
+- **External / cross-team edges**: no row to point at, so they render as
+  `Flags` text ("blocked by OTHER-123 (external)") — marking exactly
+  where the schedule depends on someone else.
+- **Missing estimates**: row appears at a default 1d with a "no
+  estimate" flag; the chart stays drawable and the guess is labeled.
+
+### Write mechanics and linkage rules
+
+Two waves, mirroring push's add-then-reparent pattern: add all rows,
+then set predecessor cells referencing the created rows. The predecessor
+cell encoding is shape-sensitive and unverified against a live instance
+— this feature ships behind the same smoke-before-trust caveat as
+bootstrap, Gov especially.
+
+Because rows are recreated each sync, **nothing may link into the gantt
+sheet**: cell links, cross-sheet formulas, and sister-team references
+belong on the mirror sheets, whose change plan updates rows in place
+(row identity survives sync; formulas keyed on the `Key` column survive
+even delete/re-add). The run report prints the category on every run —
+`gantt RENDER sheet 4321 (rebuilt: 142 rows)` — so the disposability is
+always visible. README documents the rule with the recommended cross-sheet
+pattern (INDEX/MATCH on Key against `issues`).
+
+## 7. Prerequisite: pull-state keying
 
 `pull_sheet` keys state by primary-column value, so duplicate primaries
 silently collapse — already filed from the 0.3.0 review (future_work:
@@ -225,7 +297,7 @@ now fail loud instead of merging). Machine-sheet primaries are unique by
 construction, so change-planning against machine state is unaffected;
 `_parent` bookkeeping already exists and is unchanged.
 
-## 7. Sheet inventory after 0.5.0
+## 8. Sheet inventory after 0.5.0
 
 | Schema | Owner | Status |
 | --- | --- | --- |
@@ -234,13 +306,14 @@ construction, so change-planning against machine state is unaffected;
 | dependencies | machine | opt-in |
 | capacity | machine | opt-in |
 | accuracy | machine | opt-in |
+| gantt | render | opt-in; dependency-enabled forecast with arrows and milestones |
 | people | human | optional; yaml default covers roster + recurring burden |
 | future_work | human | optional |
 
-Seven schemas, zero required ids, minimum setup = `workspace_id` + an
-`issues` sheet created from `schema show`.
+Eight schemas (down from nine), zero required ids, minimum setup =
+`workspace_id` + an `issues` sheet created from `schema show`.
 
-## 8. Config summary
+## 9. Config summary
 
 - `smartsheet.sheets` — now optional; explicit ids override discovery.
 - `smartsheet.workspace_id` — enables name resolution (already existed
@@ -255,7 +328,7 @@ stop being recognized (README migration note: rename/rebuild into a
 `epics` sheet retired; push no longer exits 1 on unconfigured sheets
 (that role moves to `expect:`).
 
-## 9. Testing
+## 10. Testing
 
 - **Resolution:** explicit id beats discovery; discovery matches exact
   name; ambiguous duplicate names raise; no workspace_id + no sheets →
@@ -276,10 +349,16 @@ stop being recognized (README migration note: rename/rebuild into a
 - **Pull keying:** child keys parent-qualified; duplicate qualified keys
   raise; future_work duplicate titles raise (regression for the filed
   bug); machine-sheet pulls byte-identical to today.
-- **Live before trust:** workspace discovery and bootstrap --sheets get
-  a SmartsheetGov smoke before the README drops the experimental label.
+- **Gantt:** scheduling seed correctness (root anchors by status/sprint;
+  predecessor'd rows get duration only); cycle-break determinism and
+  Flags naming; external edges and missing estimates flagged; milestone
+  rows at release dates; pre-flight rejects a non-dependency-enabled
+  sheet; two-wave write ordering (rows before predecessor cells).
+- **Live before trust:** workspace discovery, bootstrap --sheets, and
+  especially the gantt predecessor encoding get a SmartsheetGov smoke
+  before the README drops the experimental label.
 
-## 10. Decisions log
+## 11. Decisions log
 
 - Mandatory-six: reversed (Juno, 2026-07-14).
 - `(defaults)` group in people sheet: rejected, yaml keeps globals.
@@ -288,3 +367,11 @@ stop being recognized (README migration note: rename/rebuild into a
 - Recurring burden under empirical throughput: documentation, not a
   deduction (§4 rule).
 - Discovery is default; `expect:` is the strictness opt-in.
+- Gantt: arrows and milestone diamonds are critical (Juno), which
+  requires Smartsheet's dependency engine, which requires a sheet it
+  owns — hence a render target. The alternative (tentpole-computed
+  forecast columns on issues + Gantt view, no arrows) was designed and
+  rejected for losing exactly those two things.
+- Foreign-sheet ingest (Smartsheet-only sister teams → external
+  stubs/ghosts): parked until a concrete sister-team sheet exists to
+  design against. Cross-team visibility today enters via Jira links.
