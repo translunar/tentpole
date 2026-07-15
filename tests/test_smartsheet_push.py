@@ -582,3 +582,70 @@ def test_cli_push_prints_epics_fold_hint(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "folded into issues" in out
+
+
+# --- Task 9: gantt pre-flight, predecessor encoding, write-never (spec §6) -
+
+from tentpole.adapters.smartsheet_load import gantt_preflight  # noqa: E402
+
+
+def _gantt_cols():
+    # A gantt-enabled issues sheet. COLS already carries the five rollup
+    # columns (Task 1) and First Planned (Task 5); add only the five gantt
+    # columns so titles aren't duplicated.
+    cols = list(COLS["columns"])
+    next_id = 60
+    for title in ["Forecast Start", "Forecast Finish", "Duration",
+                  "Predecessors", "Flags"]:
+        cols.append({"id": next_id, "title": title})
+        next_id += 1
+    return cols
+
+
+def test_gantt_preflight_ok_when_columns_present_and_designated():
+    from tentpole.schema import SCHEMAS
+    col_ids = {c["title"]: c["id"] for c in _gantt_cols()}
+    project_settings = {"startDateColumnId": col_ids["Forecast Start"],
+                        "endDateColumnId": col_ids["Forecast Finish"]}
+    assert gantt_preflight(SCHEMAS["issues"], 111, col_ids,
+                           project_settings) is None
+
+
+def test_gantt_preflight_errors_on_missing_gantt_column():
+    from tentpole.schema import SCHEMAS
+    col_ids = {c["title"]: c["id"] for c in _gantt_cols()
+               if c["title"] != "Predecessors"}
+    ps = {"startDateColumnId": col_ids["Forecast Start"],
+          "endDateColumnId": col_ids["Forecast Finish"]}
+    problem = gantt_preflight(SCHEMAS["issues"], 111, col_ids, ps)
+    assert problem is not None and "Predecessors" in problem
+
+
+def test_gantt_preflight_errors_when_forecast_not_designated():
+    from tentpole.schema import SCHEMAS
+    col_ids = {c["title"]: c["id"] for c in _gantt_cols()}
+    ps = {"startDateColumnId": 999, "endDateColumnId": 998}   # wrong columns
+    problem = gantt_preflight(SCHEMAS["issues"], 111, col_ids, ps)
+    assert problem is not None and "designated" in problem.lower()
+
+
+def test_encode_predecessors_documented_shape():
+    from tentpole.adapters.smartsheet_load import _encode_predecessors
+    row_ids = {"B-1": 900, "B-2": 901}
+    obj = _encode_predecessors("B-1, B-2, GHOST", row_ids)
+    assert obj["objectType"] == "PREDECESSOR_LIST"
+    assert obj["predecessors"] == [{"rowId": 900}, {"rowId": 901}]  # GHOST skipped
+
+
+def test_write_never_engine_dates_produce_zero_updates():
+    from tentpole.changeplan import plan_changes
+    from tentpole.sheets import SheetSpec, Row
+    from tentpole.schema import SCHEMAS
+    spec_cells = {"Key": "T-1", "In Jira": True, "Duration": 3.0,
+                  "Predecessors": "B-1"}   # NO Forecast Start (write-never)
+    spec = SheetSpec("issues", [Row("T-1", spec_cells)])
+    current = {"Key": "T-1", "In Jira": True, "Duration": 3.0,
+               "Predecessors": "B-1", "Forecast Start": "2026-08-15"}
+    changes = plan_changes(spec, {"T-1": current}, SCHEMAS["issues"],
+                           gantt=True)
+    assert changes == []

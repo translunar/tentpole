@@ -22,7 +22,7 @@ class Change:
 
 
 def plan_changes(spec: SheetSpec, current: dict[str, dict],
-                 schema: SheetSchema) -> list[Change]:
+                 schema: SheetSchema, gantt: bool = False) -> list[Change]:
     if schema.owned != "machine":
         raise ValueError(
             f"refusing to plan changes for human-owned sheet "
@@ -31,7 +31,7 @@ def plan_changes(spec: SheetSpec, current: dict[str, dict],
         raise ValueError(
             f"spec sheet '{spec.sheet}' does not match schema "
             f"'{schema.name}'")
-    synced = set(schema.synced_names())
+    synced = set(schema.synced_names(gantt=gantt))
     changes: list[Change] = []
     spec_keys = set()
     for row in spec.rows:

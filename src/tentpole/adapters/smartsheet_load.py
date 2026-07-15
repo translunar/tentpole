@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tentpole.adapters.config import SmartsheetConfig
 from tentpole.adapters.http import request
-from tentpole.schema import SCHEMAS, SheetSchema
+from tentpole.schema import GANTT_COLUMNS, SCHEMAS, SheetSchema
 
 
 def _headers(cfg: SmartsheetConfig) -> dict:
@@ -181,6 +181,47 @@ def _validate_columns(schema: SheetSchema, sheet_id: int,
             f"sheet only has {sorted(col_ids)}. Recreate the missing "
             f"column(s) exactly as named by `tentpole schema show` before "
             f"pushing.")
+
+
+def gantt_preflight(schema: SheetSchema, sheet_id: int, col_ids: dict,
+                    project_settings: dict) -> str | None:
+    # Spec §6: when dependencies are enabled, the five gantt columns must
+    # exist and Forecast Start/Finish must be the designated date pair, else
+    # an actionable error BEFORE any write. Shapes UNVERIFIED (smoke first).
+    missing = [c for c in GANTT_COLUMNS if c not in col_ids]
+    if missing:
+        return (f"sheet {schema.name!r} (id {sheet_id}) has dependencies "
+                f"enabled (gantt mode) but is missing gantt column(s) "
+                f"{missing}. Add them exactly as named by `tentpole schema "
+                f"show`, or turn off the sheet's dependency setting.")
+    want_start = col_ids.get("Forecast Start")
+    want_end = col_ids.get("Forecast Finish")
+    if (project_settings.get("startDateColumnId") != want_start
+            or project_settings.get("endDateColumnId") != want_end):
+        return (f"sheet {schema.name!r} (id {sheet_id}): gantt mode requires "
+                f"'Forecast Start' and 'Forecast Finish' to be the "
+                f"designated start/end date columns in project settings. "
+                f"Designate them in the Smartsheet UI (the API cannot).")
+    return None
+
+
+def _encode_predecessors(value: str, row_ids: dict[str, int]) -> dict:
+    # UNVERIFIED shape (spec §6, live-smoke item): Smartsheet predecessor
+    # cell as an objectValue PREDECESSOR_LIST of {rowId} references. Keys
+    # not resolvable to a row id are skipped (their arrow simply won't draw
+    # until both rows exist -- a self-healing next run).
+    #
+    # SMOKE-GATED: this function is defined and unit-tested against its
+    # documented shape only. It is deliberately NOT wired into
+    # `_cells_payload` or the live add/update payloads -- the real
+    # SmartsheetGov predecessor cell shape is unconfirmed. Wiring it in is
+    # completed during the SmartsheetGov smoke test (Task 10 / README
+    # smoke-before-trust list), once the real shape is verified.
+    predecessors = []
+    for key in [k.strip() for k in value.split(",") if k.strip()]:
+        if key in row_ids:
+            predecessors.append({"rowId": row_ids[key]})
+    return {"objectType": "PREDECESSOR_LIST", "predecessors": predecessors}
 
 
 def _cells_payload(cells: dict, col_ids: dict) -> list[dict]:
@@ -367,17 +408,32 @@ def push_plans(cfg, plans_dir: Path, state_dir: Path,
 
     # Pre-flight EVERY target sheet's columns before the first write (a
     # mid-loop mismatch would leave earlier sheets written and the report
-    # discarded).
+    # discarded). The issues sheet's gantt pre-flight (spec §6) rides the
+    # SAME GET response as the column check -- a non-gantt sheet must issue
+    # exactly one GET here, byte-identical to before this task.
     col_ids_by_name = {}
     problems = []
+    gantt_problem = None
     for name, schema, _plan, sheet_id in targets:
-        col_ids = _column_ids(cfg, sheet_id, http=http)
+        data = _call(cfg, "GET", f"/sheets/{sheet_id}", http=http)
+        col_ids = {c["title"]: c["id"] for c in data.get("columns", [])}
         problem = _validate_columns(schema, sheet_id, col_ids)
         if problem:
             problems.append(problem)
         col_ids_by_name[name] = col_ids
+        if name == "issues" and not problem:
+            # dependenciesEnabled / projectSettings shape is UNVERIFIED --
+            # smoke before trusting (spec §6).
+            enabled = bool(data.get("dependenciesEnabled")
+                           or data.get("projectSettings", {})
+                           .get("dependenciesEnabled"))
+            if enabled:
+                gantt_problem = gantt_preflight(
+                    schema, sheet_id, col_ids, data.get("projectSettings", {}))
     if problems:
         raise ValueError("\n".join(problems))
+    if gantt_problem:
+        raise ValueError(gantt_problem)
 
     for name, schema, plan_path, sheet_id in targets:
         changes = json.loads(plan_path.read_text())
