@@ -59,3 +59,29 @@ def test_load_bundle_tolerates_missing_optional_files(tmp_path):
     b = load_bundle(tmp_path)
     assert b.issues == [] and b.ghosts == []
     assert isinstance(b.config, Config)
+
+
+def test_config_recurring_days_defaults_empty():
+    from tentpole.model import Config
+    assert Config(team=["ada"]).recurring_days == {}
+
+
+def test_load_bundle_team_map_form_splits_roster_and_recurring(tmp_path):
+    import json
+    from tentpole.model import load_bundle
+    (tmp_path / "meta.json").write_text(json.dumps({"as_of": "2026-07-12"}))
+    (tmp_path / "config.json").write_text(json.dumps({
+        "team": {"ada": {}, "grace": {"ops rotation": 2, "lead": 0.5}}}))
+    b = load_bundle(tmp_path)
+    assert b.config.team == ["ada", "grace"]           # roster = keys
+    assert b.config.recurring_days == {"ada": 0.0, "grace": 2.5}  # summed
+
+
+def test_load_bundle_team_list_form_unchanged(tmp_path):
+    import json
+    from tentpole.model import load_bundle
+    (tmp_path / "meta.json").write_text(json.dumps({"as_of": "2026-07-12"}))
+    (tmp_path / "config.json").write_text(json.dumps({"team": ["ada", "grace"]}))
+    b = load_bundle(tmp_path)
+    assert b.config.team == ["ada", "grace"]
+    assert b.config.recurring_days == {}

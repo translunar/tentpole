@@ -83,6 +83,7 @@ class Config:
         "on-call", "on call", "console", "vacation",
     )
     team: list[str] = field(default_factory=list)
+    recurring_days: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self):
         # A silently-wrong sprints_per_plan produces a broken plan that
@@ -163,6 +164,16 @@ def load_bundle(path: Path) -> Bundle:
     if "overhead_summary_patterns" in config_raw:
         config_raw["overhead_summary_patterns"] = tuple(
             config_raw["overhead_summary_patterns"])
+    team_raw = config_raw.get("team")
+    if isinstance(team_raw, dict):
+        # Map form (spec §3): keys are the roster; each value is a
+        # {label: days} dict of recurring burden. Labels are documentation;
+        # the capacity math needs only the per-person sum.
+        config_raw["team"] = list(team_raw)
+        config_raw["recurring_days"] = {
+            person: float(sum((burden or {}).values()))
+            for person, burden in team_raw.items()
+        }
     return Bundle(
         as_of=date.fromisoformat(meta["as_of"]),
         issues=issues, sprints=sprints, fix_versions=fix_versions,
