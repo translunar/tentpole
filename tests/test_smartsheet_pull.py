@@ -94,6 +94,75 @@ def _fake_urlopen(routes):
     return _urlopen
 
 
+def test_pull_sheet_human_qualifies_child_keys(fake_http):
+    # A people-shaped sheet: two people each with a "PTO" child. Bare-primary
+    # keying would collapse both PTO rows; parent-qualified keying keeps them.
+    sheet = {
+        "columns": [
+            {"id": 1, "title": "Item", "primary": True},
+            {"id": 2, "title": "Days"},
+        ],
+        "rows": [
+            {"id": 100, "cells": [{"columnId": 1, "value": "ada"}]},
+            {"id": 101, "parentId": 100,
+             "cells": [{"columnId": 1, "value": "PTO"},
+                       {"columnId": 2, "value": 4}]},
+            {"id": 200, "cells": [{"columnId": 1, "value": "grace"}]},
+            {"id": 201, "parentId": 200,
+             "cells": [{"columnId": 1, "value": "PTO"},
+                       {"columnId": 2, "value": 2}]},
+        ],
+    }
+    fake_http.add("GET", "/sheets/55", sheet)
+    state = pull_sheet(CFG, 55, http=fake_http, sheet_name="people",
+                       human=True)
+    assert set(state) == {"ada", "grace", "ada|PTO", "grace|PTO"}
+    assert state["ada|PTO"]["Days"] == 4
+    assert state["ada|PTO"]["_parent"] == "ada"
+    assert state["grace|PTO"]["Days"] == 2
+
+
+def test_pull_sheet_human_duplicate_key_raises(fake_http):
+    # Two roots with the same primary (the filed future_work "Migrate DB" bug).
+    sheet = {
+        "columns": [{"id": 1, "title": "Title", "primary": True}],
+        "rows": [
+            {"id": 1, "cells": [{"columnId": 1, "value": "Migrate DB"}]},
+            {"id": 2, "cells": [{"columnId": 1, "value": "Migrate DB"}]},
+        ],
+    }
+    fake_http.add("GET", "/sheets/55", sheet)
+    with pytest.raises(ValueError, match="Migrate DB"):
+        pull_sheet(CFG, 55, http=fake_http, sheet_name="future_work",
+                   human=True)
+
+
+def test_pull_sheet_human_duplicate_child_pair_raises(fake_http):
+    # Same (person, item) twice -> duplicate qualified key "ada|PTO".
+    sheet = {
+        "columns": [{"id": 1, "title": "Item", "primary": True}],
+        "rows": [
+            {"id": 100, "cells": [{"columnId": 1, "value": "ada"}]},
+            {"id": 101, "parentId": 100,
+             "cells": [{"columnId": 1, "value": "PTO"}]},
+            {"id": 102, "parentId": 100,
+             "cells": [{"columnId": 1, "value": "PTO"}]},
+        ],
+    }
+    fake_http.add("GET", "/sheets/55", sheet)
+    with pytest.raises(ValueError, match="ada.PTO"):
+        pull_sheet(CFG, 55, http=fake_http, sheet_name="people", human=True)
+
+
+def test_pull_sheet_machine_keys_stay_bare_and_byte_identical(fake_http):
+    # Machine sheet (human=False, the default): children keep bare keys so
+    # change-planning against issues is unaffected (spec §11).
+    fake_http.add("GET", "/sheets/111", SHEET)
+    state = pull_sheet(CFG, 111, http=fake_http)
+    assert set(state) == {"E-1", "T-1"}          # NOT "E-1|T-1"
+    assert state["T-1"]["_parent"] == "E-1"
+
+
 def test_cli_pull_end_to_end(tmp_path, monkeypatch):
     # Drives the real `tentpole pull ...` entry point (argparse ->
     # adapters/cli.dispatch -> _pull -> pull_state -> write JSON)

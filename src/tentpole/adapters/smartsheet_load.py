@@ -22,32 +22,51 @@ def _call(cfg, method, path, *, params=None, body=None, http=request):
                 params=params, body=body)
 
 
-def pull_sheet(cfg, sheet_id: int, http=request) -> dict[str, dict]:
+def pull_sheet(cfg, sheet_id: int, http=request, *, sheet_name=None,
+               human: bool = False) -> dict[str, dict]:
     data = _call(cfg, "GET", f"/sheets/{sheet_id}", http=http)
     columns = data.get("columns", [])
     titles = {c["id"]: c["title"] for c in columns}
     primary_id = next(c["id"] for c in columns if c.get("primary"))
-    key_by_row_id = {}
-    parent_row_ids = {}
-    state = {}
+    primary_by_row_id = {}
+    parsed = []                      # (row_id, primary, cells, parent_row_id)
     for row in data.get("rows", []):
         cells = {}
-        key = None
+        primary = None
         for cell in row.get("cells", []):
             value = cell.get("value")
             if cell["columnId"] == primary_id and value is not None:
-                key = str(value)
+                primary = str(value)
             title = titles.get(cell["columnId"])
             if title is not None and value is not None:
                 cells[title] = value
-        if key is None:
+        if primary is None:
             continue   # keyless row: nothing the planner can address
-        key_by_row_id[row["id"]] = key
         cells["_row_id"] = row["id"]
-        parent_row_ids[key] = row.get("parentId")
+        primary_by_row_id[row["id"]] = primary
+        parsed.append((row["id"], primary, cells, row.get("parentId")))
+    state = {}
+    label = sheet_name if sheet_name is not None else sheet_id
+    for _row_id, primary, cells, parent_row_id in parsed:
+        parent_primary = primary_by_row_id.get(parent_row_id)
+        cells["_parent"] = parent_primary
+        # Human sheets (people, future_work) can legitimately repeat a
+        # primary across parents (ada's "PTO" and grace's "PTO"); qualify
+        # their child keys so both survive. Machine sheets keep bare keys
+        # (spec §11: byte-identical pulls -- their primaries are unique).
+        if human and parent_primary is not None:
+            key = f"{parent_primary}|{primary}"
+        else:
+            key = primary
+        if key in state:
+            # A duplicate after qualification is always a human error;
+            # silent merge understates demand (the future_work bug) or
+            # drops a burden. Fail loud (spec §8).
+            raise ValueError(
+                f"sheet {label!r}: two rows resolve to the same key "
+                f"{key!r} -- rename one so each row is unique (a duplicate "
+                f"primary would silently merge in pull state)")
         state[key] = cells
-    for key, cells in state.items():
-        cells["_parent"] = key_by_row_id.get(parent_row_ids[key])
     return state
 
 
@@ -60,7 +79,9 @@ def pull_state(cfg, state_dir: Path, http=request) -> list[str]:
             raise ValueError(
                 f"unknown sheet {name!r} in config "
                 f"(known: {sorted(SCHEMAS)})")
-        state = pull_sheet(cfg, cfg.sheets[name], http=http)
+        state = pull_sheet(cfg, cfg.sheets[name], http=http,
+                           sheet_name=name,
+                           human=SCHEMAS[name].owned == "human")
         (state_dir / f"{name}.json").write_text(
             json.dumps(state, indent=2))
         pulled.append(name)
