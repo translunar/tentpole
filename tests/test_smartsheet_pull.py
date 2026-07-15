@@ -273,3 +273,21 @@ def test_pull_state_records_issues_dependencies_flag(tmp_path, fake_http):
     pull_state(cfg, tmp_path, http=fake_http)
     settings = json.loads((tmp_path / "settings.json").read_text())
     assert settings["issues"]["dependencies_enabled"] is True
+
+
+def test_pull_state_off_unlinks_stale_settings_file(tmp_path, fake_http):
+    # A prior pull wrote settings.json with dependencies_enabled=True while
+    # the issues sheet existed; the sheet was then renamed/deleted so it now
+    # resolves OFF. The stale gantt flag must not survive -- otherwise a
+    # later `sync` would read gantt=True from a sheet that no longer exists,
+    # silently defeating the OFF fallback (same rationale as the stale
+    # {name}.json unlink covered above; commit d13f4f7's P6 fail-loud fix).
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"issues": {"dependencies_enabled": True}}))
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           workspace_id=999)
+    ws = {"sheets": []}   # issues absent -> resolves OFF
+    fake_http.add("GET", "/workspaces/999", ws)
+    report = pull_state(cfg, tmp_path, http=fake_http)
+    assert report["issues"]["state"] == "OFF"
+    assert not (tmp_path / "settings.json").exists()

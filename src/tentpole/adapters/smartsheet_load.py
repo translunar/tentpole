@@ -138,6 +138,11 @@ def pull_state(cfg, state_dir: Path, http=request) -> dict[str, dict]:
             # the next sync as authoritative, silently defeating the
             # documented fallback.
             (state_dir / f"{name}.json").unlink(missing_ok=True)
+            if name == "issues":
+                # Same rationale: a stale gantt flag must not survive the
+                # issues sheet going OFF, or the next sync would silently
+                # read gantt=True from a sheet that no longer exists.
+                (state_dir / "settings.json").unlink(missing_ok=True)
             report[name] = {"state": "OFF", "sheet_id": None, "owned": owned}
             continue
         state = pull_sheet(cfg, sheet_id, http=http, sheet_name=name,
