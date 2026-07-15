@@ -92,31 +92,29 @@ def test_sync_creates_missing_state_dir(dirs):
     assert (missing_state / "snapshots.jsonl").exists()
 
 
-def test_sync_emptied_exceptions_sheet_drops_stale_bundle_exception(dirs):
-    # FIX 2: an emptied human sheet ({}) must REPLACE bundle data, not be
-    # treated the same as an absent state file (which leaves bundle data
-    # alone). Here the bundle carries a stale exception that, if kept,
-    # reduces ada's sprint capacity enough to trigger a spurious red
-    # sprint_overload finding.
+def test_sync_people_sheet_supplies_exceptions(dirs):
+    # One-off exceptions now come from people-sheet child rows with Sprint
+    # set (spec §3). ada carries 6d of sprint-1 work; a 3d one-off in
+    # sprint 1 pushes her over prior capacity -> red sprint_overload.
     bundle, state, out = dirs
-    (bundle / "exceptions.json").write_text(json.dumps([
-        {"person": "ada", "sprint_id": 1, "day_cost": 3.0}]))
     issues = json.loads((bundle / "issues.json").read_text())
     issues[0]["remaining_estimate_days"] = 6.0
     (bundle / "issues.json").write_text(json.dumps(issues))
-    (state / "exceptions.json").write_text("{}")
-
+    (state / "people.json").write_text(json.dumps({
+        "ada": {"Item": "ada", "_row_id": 1, "_parent": None},
+        "ada|PTO": {"Item": "PTO", "Sprint": 1, "Days": 3, "_row_id": 2,
+                    "_parent": "ada"}}))
     rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
                "--out", str(out)])
-    assert rc == 0
     report = json.loads((out / "report.json").read_text())
-    assert "sprint_overload" not in report["findings"]
+    assert rc == 0                                   # sync reports, returns 0
+    assert "sprint_overload" in report["findings"]
 
 
-def test_sync_team_sheet_overrides_bundle_config(dirs):
+def test_sync_people_sheet_overrides_bundle_config(dirs):
     bundle, state, out = dirs
-    (state / "team.json").write_text(json.dumps({
-        "r1": {"Person": "grace", "_row_id": 1, "_parent": None}}))
+    (state / "people.json").write_text(json.dumps({
+        "grace": {"Item": "grace", "_row_id": 1, "_parent": None}}))
     rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
                "--out", str(out)])
     assert rc == 0
@@ -126,21 +124,14 @@ def test_sync_team_sheet_overrides_bundle_config(dirs):
     assert not any(k.startswith("ada|") for k in keys)
 
 
-def test_sync_emptied_team_sheet_drops_stale_bundle_roster(dirs):
-    # Minor finding (fix-now): present-but-empty team.json ({}) must be
-    # authoritative -- same posture as future_work/exceptions above --
-    # not fall back to the bundle's core: team: roster. An emptied
-    # roster is a deliberate human act (spec section 7); if the empty
-    # sheet were treated as absent (e.g. `if team_sheet:` instead of
-    # `if team_sheet is not None:`), ada's core: team: membership would
-    # silently survive and keep generating capacity rows for her.
+def test_sync_emptied_people_sheet_drops_stale_bundle_roster(dirs):
+    # Present-but-empty people.json ({}) is authoritative: the bundle's
+    # core: team: roster must not survive it (spec §3, ported from the
+    # 0.3.0 team-sheet semantics test).
     bundle, state, out = dirs
-    (state / "team.json").write_text("{}")
-
+    (state / "people.json").write_text("{}")
     rc = main(["sync", "--bundle", str(bundle), "--state", str(state),
                "--out", str(out)])
     assert rc == 0
     cap = json.loads((out / "plans" / "capacity.json").read_text())
-    keys = {c["key"] for c in cap}
-    assert not any(k.startswith("ada|") for k in keys)
     assert cap == []

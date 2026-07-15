@@ -1,9 +1,9 @@
-"""Parse human-owned sheet state (Future Work, Exceptions, Team) back
-into bundle inputs (spec section 7: the sync reads these, never writes
-them)."""
+"""Parse human-owned sheet state (Future Work, People) back into bundle
+inputs (spec section 7: the sync reads these, never writes them)."""
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from tentpole.model import ExceptionRow, Ghost
 
@@ -67,35 +67,88 @@ def ghosts_from_sheet(rows: dict[str, dict]) -> list[Ghost]:
     return ghosts
 
 
-def exceptions_from_sheet(rows: dict[str, dict]) -> list[ExceptionRow]:
-    out = []
-    for cells in rows.values():
-        person = _text(cells, "Person")
-        if not person:
-            continue
-        out.append(ExceptionRow(
-            person=person,
-            sprint_id=int(_number(cells, "Sprint",
-                                  sheet="exceptions", row=person)),
-            day_cost=_number(cells, "Day Cost",
-                             sheet="exceptions", row=person),
-        ))
-    return out
+@dataclass
+class PeopleSheet:
+    team: list[str]
+    recurring_days: dict[str, float]
+    exceptions: list[ExceptionRow]
 
 
-def team_from_sheet(rows: dict[str, dict]) -> list[str]:
-    """Roster from the human-owned Team sheet, in sheet order. Person
-    must match the Jira display name exactly -- the team_drift check
-    flags mismatches as roster drift."""
-    team: list[str] = []
+def _people_days(cells: dict, person: str, item: str) -> float:
+    value = cells.get("Days")
+    if value is None or str(value).strip() == "":
+        raise ValueError(
+            f"people sheet: burden {item!r} under {person!r} has no Days "
+            f"value -- every burden needs a whole- or fractional-day cost "
+            f"in the Days column")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"people sheet: burden {item!r} under {person!r}: Days must be "
+            f"a number, got {value!r}") from None
+
+
+def _people_sprint(value, person: str, item: str) -> int:
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"people sheet: burden {item!r} under {person!r}: Sprint must "
+            f"be a whole sprint id, got {value!r}") from None
+    if num != int(num):
+        # A sprint id is a whole number; a fractional value is a typo, not a
+        # half-sprint. (Days, by contrast, is fractional-friendly.)
+        raise ValueError(
+            f"people sheet: burden {item!r} under {person!r}: Sprint must "
+            f"be a whole sprint id, got {value!r}")
+    return int(num)
+
+
+def people_from_sheet(rows: dict[str, dict]) -> PeopleSheet:
+    """Roster from root rows; recurring/one-off burden from child rows.
+    Present sheet is authoritative (including present-but-empty -> empty
+    team). Person names must match the Jira display name exactly --
+    team_drift flags mismatches. (Duplicate persons and duplicate
+    (person, item) pairs already raise at pull time, spec §8; the checks
+    here guard direct callers and enforce the remaining §3 rules.)"""
+    roster: list[str] = []
+    root_set: set[str] = set()
+    children: list[tuple[str, str, dict]] = []
     for cells in rows.values():
-        person = _text(cells, "Person")
-        if not person:
+        item = _text(cells, "Item")
+        if not item:
             continue
-        if person in team:
-            # A duplicate is always a human error; silent dedupe would
-            # hide a typo'd near-duplicate right next to it.
+        parent = cells.get("_parent")
+        if parent is None:
+            if _text(cells, "Days") is not None:
+                raise ValueError(
+                    f"people sheet: person row {item!r} has a Days value -- "
+                    f"a person row is a name, not a burden; put the burden "
+                    f"on a child row indented under {item!r}")
+            if item in root_set:
+                raise ValueError(
+                    f"people sheet lists person {item!r} more than once")
+            root_set.add(item)
+            roster.append(item)
+        else:
+            children.append((parent, item, cells))
+    recurring: dict[str, float] = {}
+    exceptions: list[ExceptionRow] = []
+    for parent, item, cells in children:
+        if parent not in root_set:
             raise ValueError(
-                f"team sheet lists {person!r} more than once")
-        team.append(person)
-    return team
+                f"people sheet: burden {item!r} is nested under {parent!r}, "
+                f"which is not a person row -- burdens go directly under a "
+                f"person (no grandchildren)")
+        days = _people_days(cells, parent, item)
+        sprint_raw = cells.get("Sprint")
+        if sprint_raw is None or str(sprint_raw).strip() == "":
+            recurring[parent] = recurring.get(parent, 0.0) + days
+        else:
+            exceptions.append(ExceptionRow(
+                person=parent,
+                sprint_id=_people_sprint(sprint_raw, parent, item),
+                day_cost=days))
+    return PeopleSheet(team=roster, recurring_days=recurring,
+                       exceptions=exceptions)

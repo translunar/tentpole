@@ -196,3 +196,27 @@ def test_tentpole_runway_uses_effective_throughput(make_bundle):
         fired = any(f.check == "tentpole_runway" and f.subject == "E-1"
                     for f in tentpole_runway(b, bks, compile_demand(b, bks)))
         assert fired is expect
+
+
+def test_unmatched_exception_yields_yellow_not_silence(make_bundle):
+    from tentpole.buckets import buckets_for
+    from tentpole.checks import unmatched_exception
+    from tentpole.model import ExceptionRow
+    # Sprint 999 is not in the bundle's sprints (ids 1..6). The one-off must
+    # surface as a yellow finding, never be silently dropped (spec §3).
+    b = make_bundle(exceptions=[ExceptionRow("ada", 999, 2.0)])
+    bks = buckets_for(b)
+    findings = unmatched_exception(b, bks)
+    assert len(findings) == 1
+    f = findings[0]
+    assert (f.check, f.severity, f.subject) == (
+        "unmatched_exception", "yellow", "ada")
+    assert "999" in f.message
+
+
+def test_unmatched_exception_quiet_when_sprint_known(make_bundle):
+    from tentpole.buckets import buckets_for
+    from tentpole.checks import unmatched_exception
+    from tentpole.model import ExceptionRow
+    b = make_bundle(exceptions=[ExceptionRow("ada", 1, 2.0)])
+    assert unmatched_exception(b, buckets_for(b)) == []

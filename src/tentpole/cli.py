@@ -10,8 +10,7 @@ from pathlib import Path
 
 from tentpole.adapters import cli as edge_cli
 from tentpole.diagnostics import assemble, personal, to_json
-from tentpole.humansheets import (exceptions_from_sheet, ghosts_from_sheet,
-                                  team_from_sheet)
+from tentpole.humansheets import ghosts_from_sheet, people_from_sheet
 from tentpole.hygiene import load_rules
 from tentpole.model import load_bundle
 from tentpole.runreport import render_report
@@ -22,7 +21,7 @@ from tentpole.sync import run_sync
 _SECTION_ORDER = [
     "sprint_overload", "deadline_risk", "tentpole_runway",
     "dependency_readiness", "ghost_claims", "team_subscription",
-    "team_drift",
+    "team_drift", "unmatched_exception",
 ]
 
 
@@ -111,21 +110,19 @@ def main(argv: list[str] | None = None) -> int:
         future_work = _state("future_work")
         if future_work is not None:
             bundle = replace(bundle, ghosts=ghosts_from_sheet(future_work))
-        exceptions = _state("exceptions")
-        if exceptions is not None:
-            bundle = replace(bundle,
-                             exceptions=exceptions_from_sheet(exceptions))
-        team_sheet = _state("team")
-        if team_sheet is not None:
-            # Present is authoritative, including present-but-empty --
-            # same posture as future_work above. Absent keeps the
-            # bundle's core: team: fallback.
+        people = _state("people")
+        if people is not None:
+            # Present is authoritative, including present-but-empty (an empty
+            # roster is a deliberate human act, spec §3). Absent falls back
+            # to the bundle's core: team: / recurring_days and no exceptions.
+            parsed = people_from_sheet(people)
             bundle = replace(
                 bundle,
-                config=replace(bundle.config,
-                               team=team_from_sheet(team_sheet)))
-        # run_sync expects a dict (never None) per machine sheet, even
-        # when its state file is absent.
+                exceptions=parsed.exceptions,
+                config=replace(bundle.config, team=parsed.team,
+                               recurring_days=parsed.recurring_days))
+        # run_sync expects a dict (never None) per machine sheet, even when
+        # its state file is absent.
         current = {name: _state(name) or {}
                    for name, schema in SCHEMAS.items()
                    if schema.owned == "machine"}

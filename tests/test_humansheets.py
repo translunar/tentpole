@@ -1,6 +1,6 @@
 import pytest
 
-from tentpole.humansheets import exceptions_from_sheet, ghosts_from_sheet
+from tentpole.humansheets import (ghosts_from_sheet, people_from_sheet)
 from tentpole.model import ExceptionRow, Ghost
 
 
@@ -21,16 +21,6 @@ def test_ghosts_from_sheet():
     assert bare.target == "unscheduled" and bare.estimate_days == 0.0
 
 
-def test_exceptions_from_sheet():
-    rows = {
-        "ada|3": {"Cell": "ada|3", "Person": "ada", "Sprint": 3,
-                  "Day Cost": "5"},
-        "junk": {"Cell": "junk", "Person": "", "Sprint": 1, "Day Cost": 1},
-    }
-    assert exceptions_from_sheet(rows) == [
-        ExceptionRow(person="ada", sprint_id=3, day_cost=5.0)]
-
-
 def test_ghosts_from_sheet_bad_estimate_days_raises_actionable_error():
     rows = {"Cal pipeline": {"Title": "Cal pipeline",
                              "Estimate Days": "TBD"}}
@@ -41,18 +31,6 @@ def test_ghosts_from_sheet_bad_estimate_days_raises_actionable_error():
     assert "Cal pipeline" in message
     assert "Estimate Days" in message
     assert "TBD" in message
-
-
-def test_exceptions_from_sheet_bad_day_cost_raises_actionable_error():
-    rows = {"ada|3": {"Cell": "ada|3", "Person": "ada", "Sprint": 3,
-                      "Day Cost": "lots"}}
-    with pytest.raises(ValueError) as exc_info:
-        exceptions_from_sheet(rows)
-    message = str(exc_info.value)
-    assert "exceptions" in message
-    assert "ada" in message
-    assert "Day Cost" in message
-    assert "lots" in message
 
 
 def test_ghosts_from_sheet_missing_estimate_days_still_zero():
@@ -88,21 +66,93 @@ def test_missing_target_still_defaults_unscheduled():
     assert ghosts_from_sheet(rows)[0].target == "unscheduled"
 
 
-def test_team_from_sheet_orders_and_skips_blanks():
-    from tentpole.humansheets import team_from_sheet
+def test_people_roster_recurring_and_oneoff_happy_path():
+    ps = people_from_sheet({
+        "ada": {"Item": "ada", "_parent": None},
+        "ada|team lead": {"Item": "team lead", "Days": 2, "_parent": "ada"},
+        "ada|PTO": {"Item": "PTO", "Sprint": 3, "Days": 4, "_parent": "ada"},
+        "grace": {"Item": "grace", "_parent": None},
+        "grace|ops rotation": {"Item": "ops rotation", "Days": 0.5,
+                               "_parent": "grace"},
+    })
+    assert ps.team == ["ada", "grace"]
+    assert ps.recurring_days == {"ada": 2.0, "grace": 0.5}
+    assert ps.exceptions == [ExceptionRow(person="ada", sprint_id=3,
+                                          day_cost=4.0)]
 
-    rows = {
-        "1": {"Person": "Ada Lovelace", "_row_id": 1},
-        "2": {"Person": "  "},
-        "3": {"Person": "Grace Hopper", "Notes": "on loan until Q4"},
-    }
-    assert team_from_sheet(rows) == ["Ada Lovelace", "Grace Hopper"]
+
+def test_people_roster_orders_and_skips_blanks_ported():
+    # Ported from the retired team_from_sheet test: order preserved, blank
+    # rows skipped (0.3.0 team-sheet semantics on the people sheet now).
+    ps = people_from_sheet({
+        "Ada Lovelace": {"Item": "Ada Lovelace", "_parent": None},
+        "blank": {"Item": "  ", "_parent": None},
+        "Grace Hopper": {"Item": "Grace Hopper", "Notes": "on loan",
+                         "_parent": None},
+    })
+    assert ps.team == ["Ada Lovelace", "Grace Hopper"]
 
 
-def test_team_from_sheet_rejects_duplicates():
-    from tentpole.humansheets import team_from_sheet
+def test_people_present_but_empty_is_authoritative_empty_roster():
+    # Ported semantics: a present-but-empty sheet is an authoritative empty
+    # team, not a fallback (the cli wiring in Task 6 relies on this).
+    assert people_from_sheet({}).team == []
 
-    rows = {"1": {"Person": "Ada Lovelace"},
-            "2": {"Person": "Ada Lovelace"}}
-    with pytest.raises(ValueError, match="Ada Lovelace"):
-        team_from_sheet(rows)
+
+def test_people_duplicate_root_raises_ported():
+    # Ported from team_from_sheet's duplicate test. (Live pulls already
+    # raise this at Task 1; the parser guards direct callers too.)
+    with pytest.raises(ValueError, match="Ada"):
+        people_from_sheet({
+            "Ada": {"Item": "Ada", "_parent": None},
+            "Ada ": {"Item": "Ada", "_parent": None},   # distinct dict key
+        })
+
+
+def test_people_days_on_root_raises():
+    with pytest.raises(ValueError) as exc:
+        people_from_sheet({"ada": {"Item": "ada", "Days": 3, "_parent": None}})
+    assert "ada" in str(exc.value) and "Days" in str(exc.value)
+
+
+def test_people_grandchild_raises():
+    with pytest.raises(ValueError) as exc:
+        people_from_sheet({
+            "ada": {"Item": "ada", "_parent": None},
+            "ada|ops": {"Item": "ops", "Days": 2, "_parent": "ada"},
+            "ops|deep": {"Item": "deep", "Days": 1, "_parent": "ops"},
+        })
+    assert "ops" in str(exc.value) and "grandchild" in str(exc.value)
+
+
+def test_people_child_missing_days_raises():
+    with pytest.raises(ValueError) as exc:
+        people_from_sheet({
+            "ada": {"Item": "ada", "_parent": None},
+            "ada|ops": {"Item": "ops", "_parent": "ada"}})
+    assert "ops" in str(exc.value) and "Days" in str(exc.value)
+
+
+def test_people_child_nonnumeric_days_raises():
+    with pytest.raises(ValueError, match="lots"):
+        people_from_sheet({
+            "ada": {"Item": "ada", "_parent": None},
+            "ada|ops": {"Item": "ops", "Days": "lots", "_parent": "ada"}})
+
+
+def test_people_fractional_sprint_raises():
+    with pytest.raises(ValueError) as exc:
+        people_from_sheet({
+            "ada": {"Item": "ada", "_parent": None},
+            "ada|PTO": {"Item": "PTO", "Sprint": 3.5, "Days": 4,
+                        "_parent": "ada"}})
+    assert "Sprint" in str(exc.value) and "3.5" in str(exc.value)
+
+
+def test_people_multiple_recurring_children_sum():
+    ps = people_from_sheet({
+        "ada": {"Item": "ada", "_parent": None},
+        "ada|ops": {"Item": "ops", "Days": 1.5, "_parent": "ada"},
+        "ada|lead": {"Item": "lead", "Days": 0.5, "_parent": "ada"},
+    })
+    assert ps.recurring_days == {"ada": 2.0}

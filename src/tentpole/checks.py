@@ -209,3 +209,21 @@ def team_drift(bundle: Bundle, buckets: list[Bucket],
                 "team_drift", "yellow", person, None,
                 f"{person} is in team but has no work in the current plan"))
     return findings
+
+
+def unmatched_exception(bundle: Bundle, buckets: list[Bucket]) -> list[Finding]:
+    # Spec §3: a one-off burden whose Sprint matches no known sprint is not
+    # a parse-time error (future sprints may not exist in the bundle yet),
+    # but it must never be silently dropped -- report it so the human fixes
+    # the Sprint cell or accepts the burden is ignored.
+    sprint_ids = {s.id for s in bundle.sprints}
+    findings = []
+    for e in bundle.exceptions:
+        if e.sprint_id not in sprint_ids:
+            findings.append(Finding(
+                "unmatched_exception", "yellow", e.person, None,
+                f"{e.person}: one-off burden of {e.day_cost:.1f}d targets "
+                f"sprint {e.sprint_id}, which is not in the current plan -- "
+                f"fix the Sprint cell on the people sheet or the burden is "
+                f"ignored"))
+    return findings
