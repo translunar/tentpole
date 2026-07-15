@@ -180,6 +180,23 @@ def test_pull_state_discovers_by_name_and_skips_off(tmp_path, fake_http):
     assert not (tmp_path / "people.json").exists()
 
 
+def test_pull_state_off_unlinks_stale_state_file(tmp_path, fake_http):
+    # A prior pull wrote people.json while the people sheet existed; the
+    # sheet was then renamed/deleted so it now resolves OFF. The stale file
+    # must be removed, not left behind to be silently read as authoritative
+    # by a later `sync` (the documented OFF -> yaml fallback would otherwise
+    # be defeated).
+    (tmp_path / "people.json").write_text(json.dumps({"stale": "data"}))
+    cfg = SmartsheetConfig(base_url="https://x/2.0", token="t",
+                           workspace_id=999)
+    ws = {"sheets": [{"id": 111, "name": "issues"}]}   # only issues present
+    fake_http.add("GET", "/workspaces/999", ws)
+    fake_http.add("GET", "/sheets/111", SHEET)
+    report = pull_state(cfg, tmp_path, http=fake_http)
+    assert report["people"]["state"] == "OFF"
+    assert not (tmp_path / "people.json").exists()
+
+
 def test_cli_pull_enumerates_off_schemas(tmp_path, monkeypatch, capsys):
     # Spec §2: `pull` prints one line per known schema. A human sheet that
     # goes OFF must say so (it silently switches to the yaml fallback).

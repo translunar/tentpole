@@ -187,6 +187,13 @@ def load_bundle(path: Path) -> Bundle:
                         raise ValueError(
                             f"core.team entry {person!r} label {label!r}: "
                             f"expected a number of days, got {day_value!r}")
+                    if day_value < 0:
+                        # A negative burden inflates effective capacity
+                        # (effective_throughput_for computes prior - days),
+                        # hiding over-subscription instead of revealing it.
+                        raise ValueError(
+                            f"core.team entry {person!r} label {label!r}: "
+                            f"days must be non-negative, got {day_value!r}")
                     total_days += float(day_value)
                 recurring_days[person] = total_days
             else:

@@ -140,6 +140,13 @@ def test_people_child_nonnumeric_days_raises():
             "ada|ops": {"Item": "ops", "Days": "lots", "_parent": "ada"}})
 
 
+def test_people_child_negative_days_raises():
+    with pytest.raises(ValueError, match="ops"):
+        people_from_sheet({
+            "ada": {"Item": "ada", "_parent": None},
+            "ada|ops": {"Item": "ops", "Days": -2, "_parent": "ada"}})
+
+
 def test_people_fractional_sprint_raises():
     with pytest.raises(ValueError) as exc:
         people_from_sheet({

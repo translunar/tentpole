@@ -121,8 +121,13 @@ def pull_state(cfg, state_dir: Path, http=request) -> dict[str, dict]:
         sheet_id = resolved.get(name)
         if sheet_id is None:
             # OFF human sheet falls back exactly as an absent state file:
-            # people -> yaml, future_work -> none (spec §2). We simply do not
-            # write a state file, so cli's _state(name) returns None.
+            # people -> yaml, future_work -> none (spec §2). Unlink any
+            # state file left behind by an earlier pull (the sheet may
+            # have just been renamed/deleted) so OFF is indistinguishable
+            # from absent -- a stale file here would otherwise be read by
+            # the next sync as authoritative, silently defeating the
+            # documented fallback.
+            (state_dir / f"{name}.json").unlink(missing_ok=True)
             report[name] = {"state": "OFF", "sheet_id": None, "owned": owned}
             continue
         state = pull_sheet(cfg, sheet_id, http=http, sheet_name=name,

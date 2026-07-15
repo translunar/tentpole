@@ -82,11 +82,20 @@ def _people_days(cells: dict, person: str, item: str) -> float:
             f"value -- every burden needs a whole- or fractional-day cost "
             f"in the Days column")
     try:
-        return float(value)
+        days = float(value)
     except (TypeError, ValueError):
         raise ValueError(
             f"people sheet: burden {item!r} under {person!r}: Days must be "
             f"a number, got {value!r}") from None
+    if days < 0:
+        # A negative burden distorts demand: effective_throughput_for
+        # computes prior - days, so a negative recurring burden INFLATES
+        # capacity instead of consuming it, hiding over-subscription. Fail
+        # loud rather than let a bad human cell silently reverse the sign.
+        raise ValueError(
+            f"people sheet: burden {item!r} under {person!r}: Days must be "
+            f"non-negative, got {days!r}")
+    return days
 
 
 def _people_sprint(value, person: str, item: str) -> int:
