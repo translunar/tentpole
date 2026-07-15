@@ -32,6 +32,12 @@ pip install tentpole
 
 ## Quickstart
 
+> **Upgrading from 0.4.x.** The `team` and `exceptions` sheets are no
+> longer recognized — rename/rebuild them into one `people` sheet (roster
+> as root rows, exceptions as child rows with `Sprint` set). `push` no
+> longer exits 1 on an unconfigured machine sheet; that strictness now
+> lives in `expect:`. See "The people sheet" below.
+
 1. Write `tentpole.yaml`:
 
    ```yaml
@@ -49,23 +55,41 @@ pip install tentpole
      # Gov deployments: https://api.smartsheetgov.com/2.0
      base_url: https://api.smartsheet.com/2.0
      token_env_var: SMARTSHEET_TOKEN
-     sheets:                        # ids from `tentpole bootstrap`
-       issues: 111                  # or created by hand from
-       epics: 222                   # `tentpole schema show`
-       fixversions: 333             # All six machine-owned sheets must
-       dependencies: 444            # be configured; sync produces plans
-       capacity: 555                # for each, and push refuses to let
-       accuracy: 666                # any plan go nowhere
-       team: 777                    # human-owned roster sheet (optional)
+     workspace_id: 999             # enables discovery: a sheet syncs
+                                   # because it exists, named for its schema
+     sheets:                       # optional; an explicit id always wins
+       issues: 111                 # over discovery. Pin only what you must.
+     expect: [issues]              # optional strictness: any expected schema
+                                   # that resolves OFF is an error + exit 1
    core:
-     team: [ada, grace]
-     sprints_per_plan: 6            # how many sprints a plan+N bucket
-                                    # spans AND is priced at (default 6)
+     team:                         # list form = roster only, OR map form:
+       ada: {}                     #   roster + recurring non-Jira burden
+       grace: {ops rotation: 2}    #   (days/sprint; labels are documentation)
+     sprints_per_plan: 6           # how many sprints a plan+N bucket spans
+                                   # AND is priced at (default 6)
    ```
 
-2. Create the sheets: print `tentpole schema show` and build them by
-   hand (supported path), or try the experimental `tentpole bootstrap
-   --config tentpole.yaml`.
+2. Create at least an `issues` sheet: print `tentpole schema show` and
+   build it by hand in your workspace (supported path), or try the
+   experimental `tentpole bootstrap --config tentpole.yaml` (optionally
+   `--sheets issues,capacity` for a subset). Minimum viable setup is one
+   `workspace_id` plus one `issues` sheet — every other machine sheet is
+   opt-in and simply OFF until it exists.
+
+   **Sheets resolve by name.** For each schema (`issues`, `capacity`,
+   `fixversions`, `dependencies`, `accuracy`, `people`, `future_work`),
+   tentpole uses the explicit id under `smartsheet.sheets` if present,
+   otherwise a sheet in `workspace_id` whose name matches the schema name
+   exactly, otherwise the schema is OFF. Every `push` and `pull` prints one
+   line per schema — SYNCED or OFF — so a renamed or deleted sheet flips to
+   OFF in the very next run instead of failing silently. `expect:` turns an
+   unwanted OFF into a hard error. Two sheets sharing a schema name is a
+   config error naming both ids.
+
+   **Smoke discovery before you trust it.** Workspace listing and
+   `bootstrap --sheets` are shape-sensitive against the live API. Run one
+   real `tentpole pull` (or `bootstrap`) against your instance and confirm
+   the resolution lines before wiring into a scheduled sync.
 
 3. Write `rules/hygiene.yaml` (required for `tentpole fix propose`;
    optional for `tentpole extract` and `tentpole sync`):
@@ -112,20 +136,42 @@ pip install tentpole
    tentpole fix apply --config tentpole.yaml --proposals proposals.json
    ```
 
-### The Team sheet
+### The people sheet
 
-The team roster lives in a human-owned `team` sheet (one row per
-person; `Person` must match the Jira display name exactly). `tentpole
-pull` reads it back and `sync` uses it as the roster; if the sheet is
-absent, the `core: team:` list in `tentpole.yaml` is the fallback. The
-`team_drift` check flags mismatches in both directions — someone with
-sprint work who is not on the roster (drift, or a display-name typo),
-and a roster member with no work in the current plan.
+The roster and recurring non-Jira burden live in one human-owned `people`
+sheet (it replaces the 0.4.x `team` and `exceptions` sheets). It is
+optional: without it, `core: team:` in `tentpole.yaml` is the roster and
+the map form supplies recurring burden.
 
-Keep `core: team:` in `tentpole.yaml` even once the team sheet exists:
-`tentpole check` reads only the bundle and has no access to the team
-sheet (only `sync` reads state), so removing `core: team:` makes
-`check` treat the roster as empty.
+Rows are hierarchical:
+
+- **Root rows are the roster** — one row per person; `Item` must match the
+  Jira display name exactly. A present sheet is authoritative (including
+  present-but-empty → empty team); an absent sheet falls back to
+  `core: team:`. `team_drift` flags mismatches in both directions.
+- **Child rows are burdens.** `Sprint` blank → recurring, every sprint
+  (fed into capacity). `Sprint` set → a one-off in that sprint. `Days` is
+  fractional-friendly (`0.5` for a half-day rotation); `Sprint` must be a
+  whole sprint id.
+
+Columns: `Item` (primary), `Sprint`, `Days`, `Notes`. Fail-loud rules
+(each an actionable error naming the sheet and row): `Days` on a person
+row, a burden nested under a burden (no grandchildren), a child with no
+`Days`, a fractional `Sprint`, and duplicate person or duplicate
+(person, item) rows. A one-off whose sprint is not in the current plan is
+reported as a yellow `unmatched_exception` finding, never silently dropped.
+
+**Capacity and recurring burden are never double-counted.** Recurring
+burden reduces a person's capacity only while their throughput comes from
+the prior; once there is enough history for an empirical throughput, the
+burden is already baked into the measurement (spec §4). A recurring burden
+larger than the prior yields non-positive capacity on purpose — it fires
+every capacity check for someone fully allocated to non-Jira work.
+
+Keep `core: team:` in `tentpole.yaml` even once the people sheet exists:
+`tentpole check` reads only the bundle and has no access to sheet state
+(only `sync` reads state), so removing `core: team:` makes `check` treat
+the roster as empty.
 
 ## Jira Data Center / Server
 
